@@ -13,11 +13,22 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # --- my module ---
+from cyaegha import logger
+
+from cyaegha.common.route import Route
+
+from cyaegha.plot.base import BaseConfigObject
 
 
-class Graph():
-    def __init__(self):
+class Graph(BaseConfigObject):
+    def __init__(self, name, **kwargs):
 
     def add_trace(self):
 
     def add_source(self):
+
+    def _dump_field(self):
+        pass
+
+    def _load_field(self):
+        pass

@@ -11,6 +11,11 @@ from glob import glob
 import plotly.graph_objects as go
 
 # --- my module ---
+from cyaegha import logger
+
+from cyaegha.common.route import Route
+from cyaegha.plot.base import BaseConfigObject
+from cyaegha.plot.process import BaseProcess
 
 def _grab_name(path, pattern='(.+)/monitor'):
     '''
@@ -38,8 +43,31 @@ def _grab_folders(root, folder_pattern='**/monitor'):
 
 
 
-class Source():
+class Source(BaseConfigObject):
     
-    def __init__(self, name, ):
+    def __init__(self, name, pipeline):
         self._name = name
+
+    # === properties ===
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def process(self):
+        return self._process
+
+    @process.setter
+    def process(self, proc):
+        assert isinstance(proc, BaseProcess)
+        self._process = proc
+
+    # === override BaseConfigObject ===
+
+    def _dump_field(self):
+
+        d = Route()
+
+    def _load_field(self):
         
