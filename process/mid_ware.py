@@ -216,7 +216,7 @@ class BatchAverage(BaseProcess):
 
 class Smoothing(BaseProcess):
 
-    def __init__(self, name, window_size=20, window_type=None, apply_columns=None, except_columns=None, **kwargs):
+    def __init__(self, name, window_size=20, window_type=None, apply_columns=None, exclude_columns=None, **kwargs):
         '''
         Args:
             name: (str or None) process name, used to identify
@@ -224,13 +224,13 @@ class Smoothing(BaseProcess):
             window_type: (str) type of the smoothing window, please refer to:
                 https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.rolling.html
             apply_columns: (list of (str, int)) columns to apply smoothing
-            except_columns: (list of (str, int)) columns not to apply smoothing
+            exclude_columns: (list of (str, int)) columns not to apply smoothing
         '''
         super(Smoothing, self).__init__(name=name, **kwargs)
         self._window_size = window_size
         self._window_type = window_type
         self._apply_columns = apply_columns
-        self._except_columns = except_columns
+        self._exclude_columns = exclude_columns
 
     def _setup_module(self, **kwargs):
         pass
@@ -245,10 +245,10 @@ class Smoothing(BaseProcess):
             if is_array(input):
                 outputs = []
                 for data in input:
-                    output = self._smoothing(data, self._window_size, self._window_type, self._apply_columns, self._except_columns)
+                    output = self._smoothing(data, self._window_size, self._window_type, self._apply_columns, self._exclude_columns)
                     outputs.append(output)
             else:
-                outputs = self._smoothing(data, self._window_size, self._window_type, self._apply_columns, self._except_columns)
+                outputs = self._smoothing(data, self._window_size, self._window_type, self._apply_columns, self._exclude_columns)
 
         except Exception as e:
             self.LOG.exception(
@@ -260,5 +260,33 @@ class Smoothing(BaseProcess):
 
     # === utilities ===
     @classmethod
-    def _smoothing(cls, data, window_size, window_type, apply_cols, except_cols):
+    def _smoothing(cls, data, window_size, window_type, apply_cols, exclude_cols):
+        
+        # type check
+        assert isinstance(data, pd.DataFrame), 'data must be a DataFrame, got {}'.format(type(data))
 
+        # clone data
+        data = data.copy()
+
+        # get numeric columns
+        numeric_columns = set(data.select_dtypes(include='number'))
+
+        # set the columns to apply to all columns if it's None
+        apply_cols = apply_cols or data.columns
+
+        # find difference between columns and excluded columns
+        apply_cols = apply_cols.difference(exclude_cols)
+
+        # only apply to the numerical columns
+        apply_cols = apply_cols & numeric_columns
+
+        # get column data
+        proc_data = data[apply_cols]
+
+        # smoothing
+        proc_data = proc_data.rolling(window=window_size, min_periods=1, win_type=window_type)
+
+        # update with smoothed data
+        data.update(proc_data)
+
+        return data
