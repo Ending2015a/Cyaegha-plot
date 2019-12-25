@@ -10,7 +10,7 @@ import logging
 from glob import glob
 
 # --- 3rd party ---
-import pandas
+import pandas as pd
 
 import numpy as np
 import plotly.graph_objects as go
@@ -75,7 +75,7 @@ def load_monitors(path):
                 first_line = file_handler.readline()
                 assert first_line[0] == '#'
                 header = json.loads(first_line[1:])
-                data_frame = pandas.read_csv(file_handler, index_col=None)
+                data_frame = pd.read_csv(file_handler, index_col=None)
                 headers.append(header)
             elif file_name.endswith('json'):  # Deprecated json format
                 episodes = []
@@ -85,12 +85,12 @@ def load_monitors(path):
                 for line in lines[1:]:
                     episode = json.loads(line)
                     episodes.append(episode)
-                data_frame = pandas.DataFrame(episodes)
+                data_frame = pd.DataFrame(episodes)
             else:
                 assert 0, 'unreachable'
             data_frame['t'] += header['t_start']
         data_frames.append(data_frame)
-    data_frame = pandas.concat(data_frames)
+    data_frame = pd.concat(data_frames)
     data_frame.sort_values('t', inplace=True)
     data_frame.reset_index(inplace=True)
     data_frame['t'] -= min(header['t_start'] for header in headers)
@@ -165,13 +165,11 @@ class StableBaselinesProcess(BaseProcess):
     output: (pandas.Dataframe) loaded results
     '''
     def __init__(self, name, num_timesteps, xaxis='timesteps', **kwargs):
-        super(StableBaselinesProcess, self).__init__(name=name)
+        super(StableBaselinesProcess, self).__init__(name=name, unpack_batch=False, **kwargs)
 
         self._num_timesteps = num_timesteps
         self._xaxis = xaxis
 
-    def _setup_module(self, **kwargs):
-        pass
 
     def _forward_module(self, input, **kwargs):
         '''
@@ -183,15 +181,38 @@ class StableBaselinesProcess(BaseProcess):
             otherwise, return pandas.Dataframe
         '''
 
-        if not isinstance(input, list):
-            assert isinstance(input, str), 'input for module: {} must be an str type or list of strs'.format(self.fullname)
-    
-            results = load_results([input], self._num_timesteps, self._xaxis)
-            # unpack list of pandas.Dataframe
-            results = results[0]
-        else:
-            results = load_results(input, self._num_timesteps, self._xaxis)
+        try:
 
-        return results
+            # input is a list of str
+            if isinstance(input, list):
+                results = load_results(input, self._num_timesteps, self._xaxis)
 
+                outputs = []
+                for r in results:
+                    # convert to data frame
+                    df = pd.DataFrame({self._xaxis: r[0],
+                                       'rewards': r[1]})
+                    outputs.append(df)
+            else:
+                # input is str
+                assert isinstance(input, str), 'input must be an str or list of strs'
+
+                results = load_results([input], self._num_timesteps, self._xaxis)
+                # unpack list, which only contains one element
+                result = results[0]
+
+                # convert to DataFrame
+                outputs = df.DataFrame({self._xaxis: result[0],
+                                        'rewards': result[1]})
+            
+
+        except Exception as e:
+
+            self.LOG.exception(
+                error_msg(e, '{ERROR_TYPE}: Failed to load stable baselines monitor: {ERROR_MSG}'))
+
+        return outputs
+
+    def _forward_process(self, input, **kwargs):
+        pass
         

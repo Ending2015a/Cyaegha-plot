@@ -17,8 +17,15 @@ from cyaegha.common.utils import error_msg
 from cyaegha.plot.process.base import BaseProcess
 
 
+__all__ = [
+    'Process',
+    'Interpolation',
+    'BatchAverage',
+    'Smoothing'
+]
+
 class Process(BaseProcess):
-    def __init__(self, name, process, unpack_batch=False, **kwargs):
+    def __init__(self, name, process_func, unpack_batch=False, **kwargs):
         '''
         Args:
             name: (str or None) process name, used to identify.
@@ -27,30 +34,17 @@ class Process(BaseProcess):
             unpack_batch: (bool) whether to unpack input, if input is a list or tuple
         '''
 
-        super(Process, self).__init__(name=name, **kwargs)
+        super(Process, self).__init__(name=name, unpack_batch=unpack_batch, **kwargs)
 
-        self._process = process
+        self._process_func = process_func
         self._unpack_batch = unpack_batch
 
-    def _setup_module(self,**kwargs):
-        pass
-
-    def _forward_module(self, input, **kwargs):
-        
-        try:
-            if self._unpack_batch and is_array(input):
-                outputs = []
-                for data in input:
-                    output = self._process(self, data, **kwargs)
-                    outputs.append(output)
-            else:
-                outputs = self._process(self, input, **kwargs)
-
-        except Exception as e:
-            self.LOG.exception(
-                error_msg(e, '{ERROR_TYPE}: Failed to process data: {ERROR_MSG}'))
-            
-        return outputs
+    # === override BaseProcess ===
+    def _forward_process(self, input, **kwargs):
+        '''
+        Override BaseProcess._forward_process
+        '''
+        return self._process_func(self, input, **kwargs)
 
 
 class Interpolation(BaseProcess):
@@ -69,7 +63,7 @@ class Interpolation(BaseProcess):
                 dict: values to fill NaN for each column
             ignore_nan: (bool) whether to ignore NaN
         '''
-        super(Interpolation, self).__init__(name=name, **kwargs)
+        super(Interpolation, self).__init__(name=name, unpack_batch=True, **kwargs)
         self._xaxis = xaxis
         self._start = start
         self._end = end
@@ -77,35 +71,20 @@ class Interpolation(BaseProcess):
         self._default_values = default_values
         self._ignore_nan = ignore_nan
 
-    def _setup_module(self, **kwargs):
-        pass
+    # === override BaseProcess ===
 
-    def _forward_module(self, input, **kwargs):
+    def _forward_process(self, input, **kwargs):
         '''
-        Args:
-            input: (pandas.Dataframe or a list of pandas.Dataframe) input data
+        Override BaseProcess._forward_process
         '''
-
-        try:
-            if is_array(input):
-                outputs = []
-                for data in input:
-                    # processing data
-                    processed = self._interpolate(data, self._xaxis, self._start, self._end, self._interval
-                                                self._default_values, self._ignore_nan)
-                    outputs.append(processed)
-
-            else:
-                outputs = self._interpolate(input, self._xaxis, self._start, self._end, self._interval
+        return self._interpolate(input, self._xaxis, self._start, self._end, self._interval
                                                 self._default_values, self._ignore_nan)
 
-        except Exception as e:
-            self.LOG.exception(
-                error_msg(e, '{ERROR_TYPE}: Failed to interpolate data: {ERROR_MSG}'))
-
-            raise
-
-        return outputs
+    def _error_message(self):
+        '''
+        Override BaseProces._error_message
+        '''
+        return 'Failed to interpolate data'
 
     # === utilities ===
 
@@ -119,6 +98,8 @@ class Interpolation(BaseProcess):
 
         # check data type
         assert isinstance(data, pd.DataFrame), 'data must be a pandas.DataFrame'
+        # empty check
+        assert not data.empty, 'data is empty'
 
         # clone data
         data = data.copy()
@@ -166,35 +147,35 @@ class Interpolation(BaseProcess):
         return proc_data
 
 
+
+
 class BatchAverage(BaseProcess):
 
-    def __init__(self, name, xaxis):
-        super(BatchAverage, self).__init__(name=name, **kwargs)
+    def __init__(self, name, xaxis, **kwargs):
+        '''
+        Args:
+            name: (str or None) process name, used to identify
+            xaxis: (int or str) column name or index that average along with.
+        '''
+        super(BatchAverage, self).__init__(name=name, unpack_batch=False, **kwargs)
 
         self._xaxis = xaxis
 
-    def _setup_module(self, **kwargs):
-        pass
-
-    def _forward_module(self, input, **kwargs):
+    # === override BaseProcess ===
+    def _forward_process(self, input, **kwargs):
         '''
-        Args:
-            input: (list of pandas.DataFrame) input data
+        Override BaseProcess._forward_process
         '''
+        if not is_array(input):
+            return input
+        else:
+            return self._average(input, self._xaxis)
 
-        try:
-            if is_array(input):
-                output = self._average(input, self._xaxis)
-            else:
-                output = input
-
-        except Exception as e:
-            self.LOG.exception(
-                error_msg(e, '{ERROR_TYPE}: Failed to average data: {ERROR_MSG}'))
-
-            raise
-
-        return output
+    def _error_message(self):
+        '''
+        Override BaseProcess._error_message
+        '''
+        return 'Failed to average data'
 
     # === utilities ===
 
@@ -206,12 +187,18 @@ class BatchAverage(BaseProcess):
 
         # type check
         for data in datas:
+            # type check
             assert isinstance(data, pd.DataFrame), 'inputs must be a list of pd.DataFrame, got {}'.format(type(data))
+            # empty check
+            assert not data.empty, 'data is empty'
 
         proc_data = pd.concat(datas, ignore_index=True, sort=False).sort_values([xaxis])
         proc_data = proc_data.groupby(xaxis).mean().reset_index()
         
         return proc_data
+
+
+
 
 
 class Smoothing(BaseProcess):
@@ -226,37 +213,25 @@ class Smoothing(BaseProcess):
             apply_columns: (list of (str, int)) columns to apply smoothing
             exclude_columns: (list of (str, int)) columns not to apply smoothing
         '''
-        super(Smoothing, self).__init__(name=name, **kwargs)
+        super(Smoothing, self).__init__(name=name, unpack_batch=True, **kwargs)
         self._window_size = window_size
         self._window_type = window_type
         self._apply_columns = apply_columns
         self._exclude_columns = exclude_columns
 
-    def _setup_module(self, **kwargs):
-        pass
-
-    def _forward_module(self, input, **kwargs):
+    # === override BaseProcess ===
+    def _forward_process(self, input, **kwargs):
         '''
-        Args:
-            input: (pandas.DataFrame or list of pandas.DataFrame) input data
+        Override BaseProces._forward_process
         '''
+        return self._smoothing(input, self._window_size, self._window_type, self._apply_columns, self._exclude_columns)
 
-        try:
-            if is_array(input):
-                outputs = []
-                for data in input:
-                    output = self._smoothing(data, self._window_size, self._window_type, self._apply_columns, self._exclude_columns)
-                    outputs.append(output)
-            else:
-                outputs = self._smoothing(data, self._window_size, self._window_type, self._apply_columns, self._exclude_columns)
+    def _error_message(self):
+        '''
+        Override BaseProcess._error_message
+        '''
+        return 'Failed to smooth data'
 
-        except Exception as e:
-            self.LOG.exception(
-                error_msg(e, '{ERROR_TYPE}: Failed to smooth data: {ERROR_MSG}'))
-
-            raise
-
-        return outputs
 
     # === utilities ===
     @classmethod
@@ -264,6 +239,8 @@ class Smoothing(BaseProcess):
         
         # type check
         assert isinstance(data, pd.DataFrame), 'data must be a DataFrame, got {}'.format(type(data))
+        # empty check
+        assert not data.empty, 'data is empty'
 
         # clone data
         data = data.copy()

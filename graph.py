@@ -32,3 +32,13 @@ class Graph(BaseConfigObject):
 
     def _load_field(self):
         pass
+
+
+
+pipeline = Pipeline({
+    Interpolation(),
+    BatchAverage(),
+    Smoothing()
+})
+
+Source(pipeline)
