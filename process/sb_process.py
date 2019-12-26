@@ -190,8 +190,8 @@ class StableBaselinesProcess(BaseProcess):
                 outputs = []
                 for r in results:
                     # convert to data frame
-                    df = pd.DataFrame({self._xaxis: r[0],
-                                       'rewards': r[1]})
+                    df = pd.DataFrame({self._xaxis: r[0].astype(np.int64),
+                                       'rewards': r[1].astype(np.float32)})
                     outputs.append(df)
             else:
                 # input is str
@@ -202,8 +202,8 @@ class StableBaselinesProcess(BaseProcess):
                 result = results[0]
 
                 # convert to DataFrame
-                outputs = df.DataFrame({self._xaxis: result[0],
-                                        'rewards': result[1]})
+                outputs = df.DataFrame({self._xaxis: result[0].astype(np.int64),
+                                        'rewards': result[1].astype(np.float32)})
             
 
         except Exception as e:
