@@ -16,7 +16,7 @@ from cyaegha.common.utils import is_array
 from cyaegha.common.utils import error_msg
 
 from cyaegha.common.base import BaseModule
-from cyaegha.network.base import BaseConfigurableNetwork
+from cyaegha.nn.base import BaseConfigurableNetwork
 
 __all__ = [
     'BaseProcess',
