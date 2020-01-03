@@ -25,18 +25,18 @@ __all__ = [
 ]
 
 class Process(BaseProcess):
-    def __init__(self, name, process_func, unpack_batch=False, **kwargs):
+    def __init__(self, name, fn, unpack_batch=False, **kwargs):
         '''
         Args:
             name: (str or None) process name, used to identify.
-            process: (function) custom processing function.
+            fn: (function) custom processing function.
                 signature: (self, input, **kwargs)
             unpack_batch: (bool) whether to unpack input, if input is a list or tuple
         '''
 
         super(Process, self).__init__(name=name, unpack_batch=unpack_batch, **kwargs)
 
-        self._process_func = process_func
+        self._fn = fn
         self._unpack_batch = unpack_batch
 
     # === override BaseProcess ===
@@ -44,7 +44,7 @@ class Process(BaseProcess):
         '''
         Override BaseProcess._forward_process
         '''
-        return self._process_func(self, input, **kwargs)
+        return self._fn(self, input, **kwargs)
 
 
 class Interpolation(BaseProcess):

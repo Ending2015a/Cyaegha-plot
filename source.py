@@ -40,3 +40,21 @@ def _grab_folders(root, folder_pattern='**/monitor'):
 
     return data_path
 
+
+class BaseSource():
+    def __init__(self, sources, )
+
+class StaticSource():
+    '''
+    StaticSource
+
+    A source that do not change any time.
+
+    If the source is static, which means the contant will not change, it will be loaded only for once, 
+    and then the processed results will be cached in the instance. The cached results 
+    '''
+    pass
+
+class DynamicSource():
+    pass
+

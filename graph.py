@@ -36,9 +36,19 @@ class Graph(BaseConfigObject):
 
 
 pipeline = Pipeline({
+    StableBaselinesProcess(),
     Interpolation(),
     BatchAverage(),
     Smoothing()
 })
 
-Source(pipeline)
+source = StaticSource(sources=[], process=pipeline, slice=True)
+
+group = PlotlyGraphs()
+graph = group.new_graph()
+
+trace1 = ConfIntTrace(source)
+graph.add_trace(trace1)
+graph.add_trace(trace2)
+
+
