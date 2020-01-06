@@ -165,7 +165,7 @@ class StableBaselinesProcess(BaseProcess):
     output: (pandas.Dataframe) loaded results
     '''
     def __init__(self, name, num_timesteps, xaxis='timesteps', **kwargs):
-        super(StableBaselinesProcess, self).__init__(name=name, unpack_batch=False, **kwargs)
+        super(StableBaselinesProcess, self).__init__(name=name, slice_inputs=False, **kwargs)
 
         self._num_timesteps = num_timesteps
         self._xaxis = xaxis

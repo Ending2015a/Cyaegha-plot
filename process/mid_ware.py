@@ -25,19 +25,18 @@ __all__ = [
 ]
 
 class Process(BaseProcess):
-    def __init__(self, name, fn, unpack_batch=False, **kwargs):
+    def __init__(self, name, fn, slice_inputs=False, **kwargs):
         '''
         Args:
             name: (str or None) process name, used to identify.
             fn: (function) custom processing function.
                 signature: (self, input, **kwargs)
-            unpack_batch: (bool) whether to unpack input, if input is a list or tuple
+            slice_inputs: (bool) whether to slice input, if input is a list or tuple
         '''
 
-        super(Process, self).__init__(name=name, unpack_batch=unpack_batch, **kwargs)
+        super(Process, self).__init__(name=name, slice_inputs=slice_inputs, **kwargs)
 
         self._fn = fn
-        self._unpack_batch = unpack_batch
 
     # === override BaseProcess ===
     def _forward_process(self, input, **kwargs):
@@ -63,7 +62,7 @@ class Interpolation(BaseProcess):
                 dict: values to fill NaN for each column
             ignore_nan: (bool) whether to ignore NaN
         '''
-        super(Interpolation, self).__init__(name=name, unpack_batch=True, **kwargs)
+        super(Interpolation, self).__init__(name=name, slice_inputs=True, **kwargs)
         self._xaxis = xaxis
         self._start = start
         self._end = end
@@ -157,7 +156,7 @@ class BatchAverage(BaseProcess):
             name: (str or None) process name, used to identify
             xaxis: (int or str) column name or index that average along with.
         '''
-        super(BatchAverage, self).__init__(name=name, unpack_batch=False, **kwargs)
+        super(BatchAverage, self).__init__(name=name, slice_inputs=False, **kwargs)
 
         self._xaxis = xaxis
 
@@ -213,7 +212,7 @@ class Smoothing(BaseProcess):
             apply_columns: (list of (str, int)) columns to apply smoothing
             exclude_columns: (list of (str, int)) columns not to apply smoothing
         '''
-        super(Smoothing, self).__init__(name=name, unpack_batch=True, **kwargs)
+        super(Smoothing, self).__init__(name=name, slice_inputs=True, **kwargs)
         self._window_size = window_size
         self._window_type = window_type
         self._apply_columns = apply_columns

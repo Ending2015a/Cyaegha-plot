@@ -16,29 +16,28 @@ from cyaegha.common.utils import is_array
 from cyaegha.common.utils import error_msg
 
 from cyaegha.common.base import BaseModule
-from cyaegha.nn.base import BaseConfigurableNetwork
+from cyaegha.nn.base import BaseNetworkBuilder
 
 __all__ = [
     'BaseProcess',
-    'BasePipeline',
-    'Pipeline'
+    'BasePipeline'
 ]
 
     
 
 class BaseProcess(BaseModule):
 
-    def __init__(self, name, unpack_batch=False, **kwargs):
+    def __init__(self, name, slice_inputs=False, **kwargs):
         '''
         Args:
             name: (str or None) process name, used to identify
-            unpack_batch: (bool) whether to unpack input list/tuple. If True, the batch (list/tuple) inputs will be unpacked into sliced input, 
+            slice_inputs: (bool) whether to slice input list/tuple. If True, the batch (list/tuple) inputs will be sliced into sliced input, 
                 each slice will then be fed into the process function.
         '''
 
         super(BaseProcess, self).__init__(name=name, **kwargs)
 
-        self._unpack_batch = unpack_batch
+        self._slice_inputs = slice_inputs
 
     def _setup_module(self, **kwargs):
         pass
@@ -46,7 +45,7 @@ class BaseProcess(BaseModule):
     def _forward_module(self, input, **kwargs):
 
         try:
-            if self._unpack_batch and is_array(input):
+            if self._slice_inputs and is_array(input):
                 outputs = []
                 for data in input:
                     output = self._forward_process(data, **kwargs)
@@ -70,20 +69,22 @@ class BaseProcess(BaseModule):
         return input
 
 
-class BasePipeline(BaseConfigurableNetwork):
+class BasePipeline(BaseProcess):
 
-    def __init__(self, name, pipeline):
+    network_builder = BaseNetworkBuilder
+
+    def __init__(self, name, pipeline, slice=False):
 
         super(BasePipeline, self).__init__(name=name, backbone=None)
 
         self.drafts.pipeline = pipeline
 
         # using BaseNetworkBuilder to build the network
-        self._builder = self.default_network_builder(pipeline)
+        self._builder = self.network_builder(pipeline)
 
         self._layers = None
 
-    # === properties (public) ===
+    # === properties ===
 
     @property
     def layers(self):
@@ -99,41 +100,51 @@ class BasePipeline(BaseConfigurableNetwork):
 
         * Note that it is recommanded to cache the result of calling this property since the performance issue.
         '''
-        return self._builder.layer_outputs
-
-    # === properties (private) ===
+        return self._builder.outputs
 
     @property
-    def _flattened_layers(self):
+    def flattened_layers(self):
         '''
-        Return layer instances as a flattened list
+        Return layer instances and stored as a flattened list
         '''
-        return self._builder._flattened_layers
+        return self._builder.flattened_layers
 
     @property
-    def _flattened_outputs(self):
+    def flattened_outputs(self):
         '''
-        Return outputs from each layer as a flattened list
+        Return outputs from each layer and stored them as a flattened list
         '''
-        return self._builder._flattened_outputs
+        return self._builder.flattened_outputs
 
-    
 
-    # override BaseNetwork._setup_network
-    def _setup_network(self, **kwargs):
+    # override BaseModule._setup_module
+    def _setup_module(self, **kwargs):
         '''
-        Setup network
+        Setup module
         '''
         self._builder._setup_network(**kwargs)
         self._layers = self._builder.layers
 
-
-    # override BaseNetwork._forward_network
-    def _forward_network(self, input, **kwargs):
+    # override BaseProcess._forward_process
+    def _forward_process(self, input, **kwargs):
         # forward network
-        output = self._builder._forward_network(input)
+        output = self._builder._forward_network(input, **kwargs)
 
         return output
 
-# aliaing
-Pipeline = BasePipeline
+    # === override SavableObject ===
+
+    def _dump_field(self):
+        '''
+        Override SavableObject._dump_field
+        '''
+
+        raise NotImplementedError("TODO: Method not implemented")
+
+    def _load_field(self):
+        '''
+        Override SavableObject._load_field
+        '''
+
+        raise NotImplementedError("TODO: Method not implemented")
+
