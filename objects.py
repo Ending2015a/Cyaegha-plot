@@ -12,7 +12,6 @@ import tensorflow as tf
 
 # --- my module ---
 from cyaegha.common.base import BaseModule
-from cyaegha.common.base import BaseModel
 
 class Source(BaseModule):
     def __init__(self, name, src=None, data=None, process=None, static=False, slice_inputs=True, **kwargs):
@@ -42,8 +41,6 @@ class Source(BaseModule):
         # instances
         self._src = None
         self._process = None
-
-        
 
     # === properties ===
     @property
@@ -109,7 +106,7 @@ class Trace(BaseModule):
 
 
 class Graph():
-    def __init__(self):
+    def __init__(self, ):
 
     # === functions ===
     def plot(self):
@@ -130,4 +127,6 @@ class Graph():
 
     def dump_preset(self):
 
-    
+
+
+
