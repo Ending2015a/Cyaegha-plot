@@ -164,12 +164,16 @@ class StableBaselinesProcess(BaseProcess):
     input: (list of str, str) folder names
     output: (pandas.Dataframe) loaded results
     '''
+
+    # === Main interfaces ===
+
     def __init__(self, name, num_timesteps, xaxis='timesteps', **kwargs):
         super(StableBaselinesProcess, self).__init__(name=name, slice_inputs=False, **kwargs)
 
         self._num_timesteps = num_timesteps
         self._xaxis = xaxis
 
+    # === Sub interfaces ===
 
     def _forward_module(self, input, **kwargs):
         '''

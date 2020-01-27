@@ -25,12 +25,21 @@ from cyaegha.common.base import BaseModule
 from cyaegha.common.draft import Key
 from cyaegha.common.draft import Draft
 from cyaegha.common.draft import is_draft
+from cyaegha.common.utils import is_array
 
 from cyaegha.common.parallel import parallelizable
+from cyaegha.common.parallel import is_parallelizable
+from cyaegha.common.parallel import is_unrollable
 
 from cyaegha.plot.process import BaseProcess
 
 class Source(BaseModule):
+
+    # === Attributes ===
+    # mark as parallelizable
+    __parallelizable__ = True
+    # mark as unrollable
+    __unrollable__ = True
 
     # === properties ===
     @property
@@ -141,7 +150,7 @@ class Source(BaseModule):
         '''
         override BaseModule._forward_module
 
-        Input priority: input > src > data
+        Input priority: src > input > data
 
         # TODO support for process-based parallelism
         Currently only support thread-based prallelism. It is unsafe to use proecssed_based parallelization.
@@ -151,13 +160,13 @@ class Source(BaseModule):
         # Input priority: input > src > data
         # get input from self._src
         if self._src is not None:
-            input = input or self._src(input, **kwargs)
+            input = self._src(input, **kwargs)
 
         # get input from self._data
         if self._data is not None:
             input = input or self._data
 
-        if self._slice_inputs:
+        if self._slice_inputs and is_array(input):
             output = []
             for d in input:
                 output.append( self._process(input=d, **kwargs) )
@@ -166,8 +175,20 @@ class Source(BaseModule):
 
         return output
 
+    def _update_module(self, *args, **kwargs):
+        '''
+        override BaseModule._update_module
+        '''
+
+        if self._src is not None:
+            self._src.update(*args, **kwargs)
+
+        if self._process is not None:
+            self._process.update(*args, **kwargs)
+
+
     @__call__.unroll
-    def _call_unroll(self, input: Any =None, context: Any =None, **kwargs) -> Generator[Callable, None, None]:
+    def _call_unroll(self, input: Any =None, force: bool =False, context: Any =None, **kwargs) -> Generator[Callable, None, None]:
         '''
         Parallelize __call__
 
@@ -175,6 +196,7 @@ class Source(BaseModule):
 
         Args:
             input: (Any) input data
+            force: (bool) force call
             context: (Any) context objects
 
         Returns:
@@ -183,7 +205,7 @@ class Source(BaseModule):
 
         if (not self.static) or (not self._loaded) or (force):
 
-            yield from self._forward_module.unrolled(input=input, context=context, **kwargs)
+            yield from self._forward_module.unrolled(input=input, force=force, context=context, **kwargs)
 
         else:
             # return empty generator (yield nothing)
@@ -229,19 +251,29 @@ class Source(BaseModule):
         # Input priority: input > src > data
         # get input from self._src
         if self._src is not None:
-            input = input or self._src(input, **kwargs)
+            # TODO: async nested parallelism
+            # if is_parallelizable(self._src):
+            #     # nested parallelism
+            #     yield from self._src.unrolled(input, **kwargs)
+            #     input = self._src.outputs
+            # else:
+            
+            input = self._src(input, **kwargs)
 
         # get input from self._data
         if self._data is not None:
             input = input or self._data
 
+        # if input can be sliced
+        slice_inputs = self._slice_inputs and is_array(input)
+
         # initialize context
-        context.sliced = self._slice_inputs
+        context.sliced = slice_inputs
         context.total_completed = 0
         context.outputs = []
         context.fin = False
 
-        if self._slice_inputs:
+        if slice_inputs:
             
             # initialize context
             context.total_coroutines = len(input)
@@ -308,6 +340,7 @@ class Source(BaseModule):
 
 
     # === alias ===
+
     def parallelize(self, *args, **kwargs):
         return self.__call__.parallelize(*args, **kwargs)
 

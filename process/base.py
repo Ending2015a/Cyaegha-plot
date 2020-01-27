@@ -26,6 +26,9 @@ __all__ = [
     
 
 class BaseProcess(BaseModule):
+    '''
+    BaseProcess
+    '''
 
     def __init__(self, name, slice_inputs=False, **kwargs):
         '''
@@ -40,11 +43,22 @@ class BaseProcess(BaseModule):
         self._slice_inputs = slice_inputs
 
     def _setup_module(self, **kwargs):
+        '''
+        Setup module
+
+        override BaseModule._setup_module
+        '''
         pass
 
     def _forward_module(self, input, **kwargs):
+        '''
+        Forward module
+
+        override BaseModule._forward_module
+        '''
 
         try:
+            # check if input can be sliced
             if self._slice_inputs and is_array(input):
                 outputs = []
                 for data in input:
@@ -60,31 +74,38 @@ class BaseProcess(BaseModule):
 
         return outputs
 
+    def _update_module(self, *args, **kwargs):
+        '''
+        Update module
+
+        override BaseModule._update_module
+        '''
+        pass
+
+    @abc.abstractmethod
+    def _forward_process(self, input, **kwargs):
+        '''
+        Forward process
+        '''
+        return input
+
     def _error_message(self):
         return 'Failed to run process "{}"'.format(self.name)
 
 
-    @abc.abstractmethod
-    def _forward_process(self, input, **kwargs):
-        return input
+    
 
 
 class BasePipeline(BaseProcess):
+    '''
+    BasePipeline
+    '''
+
+    # === Attributes ===
 
     network_builder = BaseNetworkBuilder
 
-    def __init__(self, name, pipeline, slice=False):
-
-        super(BasePipeline, self).__init__(name=name, backbone=None)
-
-        self.drafts.pipeline = pipeline
-
-        # using BaseNetworkBuilder to build the network
-        self._builder = self.network_builder(pipeline)
-
-        self._layers = None
-
-    # === properties ===
+    # === Properties ===
 
     @property
     def layers(self):
@@ -116,21 +137,50 @@ class BasePipeline(BaseProcess):
         '''
         return self._builder.flattened_outputs
 
+    # === Main interfaces ===
 
-    # override BaseModule._setup_module
+    def __init__(self, name, pipeline, slice_inputs=False, **kwargs):
+
+        super(BasePipeline, self).__init__(name=name, slice_inputs=slice_inputs)
+
+        self.drafts.pipeline = pipeline
+
+        # using network_builder to build the network
+        self._builder = self.network_builder(pipeline)
+
+        self._layers = None
+
+    
+    # === Sub interfaces ===
+
     def _setup_module(self, **kwargs):
         '''
         Setup module
+
+        override BaseProcess._setup_module
         '''
         self._builder._setup_network(**kwargs)
         self._layers = self._builder.layers
 
-    # override BaseProcess._forward_process
     def _forward_process(self, input, **kwargs):
+        '''
+        Forward process
+
+        override BaseProcess._forward_process
+        '''
         # forward network
         output = self._builder._forward_network(input, **kwargs)
 
         return output
+
+    def _update_module(self, *args, **kwargs):
+        '''
+        Update module
+
+        override BaseProcess._update_module
+        '''
+
+        self._builder._update_network(*args, **kwargs)
 
     # === override SavableObject ===
 

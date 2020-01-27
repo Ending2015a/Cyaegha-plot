@@ -47,6 +47,11 @@ class Process(BaseProcess):
 
 
 class Interpolation(BaseProcess):
+    '''
+    Interpolation
+    '''
+
+    # === Main interfaces ===
 
     def __init__(self, name, xaxis, start, end, interval=1000, default_values=None, ignore_nan=False, **kwargs):
         '''
@@ -70,7 +75,7 @@ class Interpolation(BaseProcess):
         self._default_values = default_values
         self._ignore_nan = ignore_nan
 
-    # === override BaseProcess ===
+    # === Sub interfaces ===
 
     def _forward_process(self, input, **kwargs):
         '''
@@ -85,7 +90,7 @@ class Interpolation(BaseProcess):
         '''
         return 'Failed to interpolate data'
 
-    # === utilities ===
+    # === Functions ===
 
     @classmethod
     def _interpolate(cls, data, xaxis, start, stop, interval, 
@@ -149,6 +154,11 @@ class Interpolation(BaseProcess):
 
 
 class BatchAverage(BaseProcess):
+    '''
+    BatchAverage
+    '''
+
+    # === Main interfaces ===
 
     def __init__(self, name, xaxis, **kwargs):
         '''
@@ -160,7 +170,8 @@ class BatchAverage(BaseProcess):
 
         self._xaxis = xaxis
 
-    # === override BaseProcess ===
+    # === Sub interfaces ===
+
     def _forward_process(self, input, **kwargs):
         '''
         Override BaseProcess._forward_process
@@ -176,7 +187,7 @@ class BatchAverage(BaseProcess):
         '''
         return 'Failed to average data'
 
-    # === utilities ===
+    # === Functions ===
 
     @classmethod
     def _average(cls, datas, xaxis):
@@ -201,6 +212,11 @@ class BatchAverage(BaseProcess):
 
 
 class Smoothing(BaseProcess):
+    '''
+    Smoothing
+    '''
+
+    # === Main interfaces ===
 
     def __init__(self, name, window_size=20, window_type=None, apply_columns=None, exclude_columns=None, **kwargs):
         '''
@@ -218,7 +234,7 @@ class Smoothing(BaseProcess):
         self._apply_columns = apply_columns
         self._exclude_columns = exclude_columns
 
-    # === override BaseProcess ===
+    # === Sub interfaces ===
     def _forward_process(self, input, **kwargs):
         '''
         Override BaseProces._forward_process
@@ -232,7 +248,8 @@ class Smoothing(BaseProcess):
         return 'Failed to smooth data'
 
 
-    # === utilities ===
+    # === Functions ===
+    
     @classmethod
     def _smoothing(cls, data, window_size, window_type, apply_cols, exclude_cols):
         
