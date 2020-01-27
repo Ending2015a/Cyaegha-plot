@@ -34,6 +34,7 @@ from cyaegha.common.utils import counter
 
 from cyaegha.common.parallel import parallelizable
 from cyaegha.common.parallel import is_parallelizable
+from cyaegha.common.parallel import is_unrollable
 
 from cyaegha.plot.source import Source
 
@@ -81,7 +82,7 @@ class BasePlotObject(metaclass=abc.ABCMeta):
 
     # === Main interfaces ===
 
-    def __init__(self, name, log_level='INFO', **kwargs) -> NoReturn:
+    def __init__(self, name: Optional[str], log_level: str ='INFO', **kwargs) -> NoReturn:
         '''
         Initialize Object
 
@@ -93,7 +94,8 @@ class BasePlotObject(metaclass=abc.ABCMeta):
         self._name: Optioanl[str] = name
 
         # create logger
-        if name is None: name = '<anony>'
+        if name is None: 
+            name = '<anony>'
         self.LOG = logger.getLogger(name='{}.{}'.format(type(self).__name__, name), level=log_level)
 
         # initialize cached outputs
@@ -106,7 +108,7 @@ class BasePlotObject(metaclass=abc.ABCMeta):
         The results are cached on `outputs` property.
         '''
 
-        self._cached_outputs = self._forward_object(*args, **kwargs)
+        self._cached_outputs = self._execute_object(*args, **kwargs)
     
         return self._cached_outputs
 
@@ -124,7 +126,7 @@ class BasePlotObject(metaclass=abc.ABCMeta):
         # check if already set up
         if (not self._already_setup_object) or (force):
             # setup objects
-            self._setup_object(force=force, **kwargs)
+            self._setup_object(*args, force=force, **kwargs)
             # mark as set up
             self._already_setup_object = True
 
@@ -180,6 +182,7 @@ class BasePlotObject(metaclass=abc.ABCMeta):
         '''
         pass
 
+    @abc.abstractmethod
     def _update_object(self, *args, **kwargs):
         '''
         Define the default update instructions of this module
@@ -249,8 +252,7 @@ class BaseTrace(BasePlotObject):
 
         # initialize instances
         self._source = None
-        self._cached_outputs = None
-        
+
     @parallelizable
     def load(self, input: Any =None, force: bool =False, **kwargs) -> bool:
         '''
@@ -263,14 +265,15 @@ class BaseTrace(BasePlotObject):
         assert self._already_setup_trace, 'The trace is not ready, please call setup(), first.'
         
         if (not self.loaded) or (force):
-            self._loaded_source = self._source(input=input, **kwargs)
+            self._loaded_source = self._source(input=input, force=force, **kwargs)
 
         return self.loaded
+
 
     # === Sub interfaces ===
 
     @abc.abstractmethod
-    def _forward_object(self, input: Any =None, combine_source=False, **kwargs) -> Any:
+    def _execute_object(self, input: Any =None, combine_source=False, **kwargs) -> Any:
         '''
         Args:
             combine_source: (bool) if the loaded source is a list of pandas.Dataframe, 
@@ -285,42 +288,48 @@ class BaseTrace(BasePlotObject):
     def _setup_object(self, key: Key =Draft.default, **kwargs) -> NoReturn:
 
         # setup source
-        if self._source is None:
+        if self.drafts.source is not None:
             self._source = Instantiate(self.drafts.source, key=key).setup(key=key, **kwargs)
     
 
     @load.unroll
-    def _load_unroll(self, input: Any =None, **kwargs) -> Generator[Callable, None, None]:
+    def _load_unroll(self, input: Any =None, force: bool =False, context: Any =None, **kwargs) -> Generator[Callable, None, None]:
         '''
         Args:
             input: (list of Any)
-        Returns:
-            (list of bool) if is loaded
+            force: (bool) force forward
+            context: (Any) context objects
         '''
 
         assert self._already_setup_trace, 'The trace is not ready, please call setup(), first.'
 
-        assert is_parallelizable(self._source._forward_module), 'The source must be parallelizable'
-        
-        yield from self._source.unrolled(input=input, **kwargs)
+        if (not self.loaded) or (force):
+            # parallelize if parallelizable
+            if is_unrollable(self._source):
+                yield from self._source.unrolled(input=input, force=force, context=context, **kwargs)
+            else:
+                self._loaded_source = self._source(input=input, force=force, **kwargs)
+
+        else:
+            return
+            yield
 
     @load.callback
-    def _load_callback(self, res) -> bool:
+    def _load_callback(self, res: Any, context: Any) -> bool:
         '''
         Callback function
         '''
-        # Source.callback will return True if all of the processes ended
-        if self._source.callback(res):
-            # get outputs
+
+        if context.fin:
             self._loaded_source = self._source.outputs
 
-            return True
-
-        return False
+        return res
 
     @abc.abstractmethod
     def _get_type(self, type: Any) -> Any:
-        
+        '''
+        Get trace type
+        '''
         return type
 
 
