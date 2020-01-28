@@ -53,7 +53,7 @@ class Interpolation(BaseProcess):
 
     # === Main interfaces ===
 
-    def __init__(self, name, xaxis, start, end, interval=1000, default_values=None, ignore_nan=False, **kwargs):
+    def __init__(self, name, xaxis, start, end, interval=1000, ignore_nan=False, default_values=None, **kwargs):
         '''
         Args:
             name: (str or None) process name, used to identify.
@@ -61,11 +61,11 @@ class Interpolation(BaseProcess):
             start: (int) start value
             end: (int or None) end value
             interval: (int) interpolate interval
+            ignore_nan: (bool) whether to ignore NaN
             default_values: (int, float, str or dict) default values/methods for filling NA/NaN that cannot be interpolated.
                 int, float: value for filling NaN.
                 str: method for filling NaN, must be one of ['backfill', 'bfill', 'pad', 'ffill'], please refer to Doc: pandas.DataFrame.fillna
                 dict: values to fill NaN for each column
-            ignore_nan: (bool) whether to ignore NaN
         '''
         super(Interpolation, self).__init__(name=name, slice_inputs=True, **kwargs)
         self._xaxis = xaxis
@@ -81,7 +81,7 @@ class Interpolation(BaseProcess):
         '''
         Override BaseProcess._forward_process
         '''
-        return self._interpolate(input, self._xaxis, self._start, self._end, self._interval
+        return self._interpolate(input, self._xaxis, self._start, self._end, self._interval,
                                                 self._default_values, self._ignore_nan)
 
     def _error_message(self):
@@ -116,9 +116,9 @@ class Interpolation(BaseProcess):
         x = np.linspace(start, stop, num, endpoint=True, dtype=data.dtypes[xaxis])
         
         # create empty DataFrame with same columns
-        processed_data = pd.DataFrame()
+        proc_data = pd.DataFrame()
         for c in data.columns:
-            processed_data[c] = np.nan
+            proc_data[c] = np.nan
 
         # add ticks
         proc_data[xaxis] = x
@@ -131,11 +131,15 @@ class Interpolation(BaseProcess):
         proc_data = proc_data.set_index(xaxis)
         proc_data = proc_data.interpolate(method='index')
 
-        # fill in uninterpolable NaN
-        if isinstance(default_values, str):
-            proc_data = proc_data.fillna(method=default_values)
-        else:
-            proc_data = proc_data.fillna(default_values)
+        if not ignore_nan:
+
+            # fill in uninterpolable NaN
+            if default_values is None:
+                raise ValueError('default_values must be specified, or set ignore_nan=True')
+            elif isinstance(default_values, str):
+                proc_data = proc_data.fillna(method=default_values)
+            else:
+                proc_data = proc_data.fillna(default_values)
 
         # reset index, remove original data
         proc_data = proc_data.reset_index()
@@ -203,7 +207,7 @@ class BatchAverage(BaseProcess):
             assert not data.empty, 'data is empty'
 
         proc_data = pd.concat(datas, ignore_index=True, sort=False).sort_values([xaxis])
-        proc_data = proc_data.groupby(xaxis).mean().reset_index()
+        proc_data = proc_data.groupby(xaxis).mean(skipna=True).reset_index()
         
         return proc_data
 
