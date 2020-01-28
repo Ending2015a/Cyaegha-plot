@@ -33,9 +33,16 @@ from cyaegha.common.parallel import is_unrollable
 
 from cyaegha.plot.process import BaseProcess
 
+
+__all__ = [
+    'Source', 
+    'StaticSource'
+]
+
 class Source(BaseModule):
 
     # === Attributes ===
+    
     # mark as parallelizable
     __parallelizable__ = True
     # mark as unrollable
@@ -166,12 +173,18 @@ class Source(BaseModule):
         if self._data is not None:
             input = input or self._data
 
-        if self._slice_inputs and is_array(input):
-            output = []
-            for d in input:
-                output.append( self._process(input=d, **kwargs) )
+        
+        if self._process is not None:
+            if self._slice_inputs and is_array(input):
+                output = []
+                for d in input:
+                    output.append( self._process(input=d, **kwargs) )
+            else:
+                output = self._process(input=input, **kwargs)
+        # no process specified
         else:
-            output = self._process(input=input, **kwargs)
+            output = input
+            
 
         return output
 
@@ -273,37 +286,55 @@ class Source(BaseModule):
         context.outputs = []
         context.fin = False
 
-        if slice_inputs:
-            
-            # initialize context
-            context.total_coroutines = len(input)
-            
-            # create coroutines for each slice
-            for idx, d in enumerate(input):
+        if self._process is not None:
+
+            if slice_inputs:
+                
+                # initialize context
+                context.total_coroutines = len(input)
+                
+                # create coroutines for each slice
+                for idx, d in enumerate(input):
+                    def _coroutine_factory(index, process, input, kwargs):
+
+                        def _coroutine(context):
+                            result = process(input, **kwargs)
+                            return (index, result)
+
+                        return _coroutine
+
+                    yield _coroutine_factory(idx, self._process, d, kwargs)
+
+            else:
+
+                # initialize context
+                context.total_coroutines = 1
+                    
                 def _coroutine_factory(index, process, input, kwargs):
 
-                    def _coroutine(context):
+                    def _coroutine():
                         result = process(input, **kwargs)
                         return (index, result)
 
                     return _coroutine
+                    
+                yield _coroutine_factory(0, self._process, input, kwargs)
 
-                yield _coroutine_factory(idx, self._process, d, kwargs)
-
+        # no process specified
         else:
 
             # initialize context
             context.total_coroutines = 1
-                
-            def _coroutine_factory(index, process, input, kwargs):
+            
+            def _coroutine_factory(index, input):
 
-                def _coroutine():
-                    result = process(input, **kwargs)
+                def coroutine():
+                    result = input
                     return (index, result)
 
                 return _coroutine
-                
-            yield _coroutine_factory(0, self._process, d, kwargs)
+
+            yield _coroutine_factory(0, input)
 
 
     @_forward_module.callback # thread safe
@@ -346,3 +377,20 @@ class Source(BaseModule):
 
     def unrolled(self, *args, **kwargs):
         return self.__call__.unrolled(*args, **kwargs)
+
+
+class StaticSource(Source):
+    
+    def __init__(self, name: Optional[str], 
+                        src: Optional[BaseModule] =None, 
+                       data: Any =None, 
+                    process: Optional[BaseProcess] =None, 
+                     static: bool =False, 
+               slice_inputs: bool =True, **kwargs) -> NoReturn:
+
+        super(StaticSource, self).__init__(name=name, 
+                                           src=src, 
+                                           data=data, 
+                                           process=process, 
+                                           static=True, 
+                                           slice_inputs=slice_inputs, **kwargs)

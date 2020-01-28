@@ -10,6 +10,7 @@ from typing import Any
 from typing import Union
 from typing import Tuple
 from typing import Callable
+from typing import Hashable
 from typing import NoReturn
 from typing import Optional
 from typing import Generator
@@ -227,11 +228,35 @@ class BaseTrace(BasePlotObject):
         '''
         Whether the data is loaded
         '''
-        return (self._already_setup_trace) and (self._source.loaded)
+        if self._source is not None:
+            return (self._already_setup_object) and (self._source.loaded)
+        else:
+            return self._already_setup_object
+
+    @property
+    def sources(self) -> Any:
+        '''
+        Loaded sources
+        '''
+        return self._loaded_source
+
+    @property
+    def type(self) -> Any:
+        '''
+        Trace type
+        '''
+        return self._trace_type
+
+    @property
+    def config(self) -> dict:
+        '''
+        Trace configurations
+        '''
+        return self._trace_config
 
     # === Main interfaces ===
 
-    def __init__(self, name: str, type: Any, source: Source, **kwargs) -> NoReturn:
+    def __init__(self, name: str, type: Hashable, source: Source =None, **kwargs) -> NoReturn:
         '''
         Args:
             type: (Any) trace type
@@ -241,17 +266,19 @@ class BaseTrace(BasePlotObject):
         # initialize BasePlotObject
         super(BaseTrace, self).__init__(name=name, **kwargs)
 
-        assert is_draft(source, Source)
+        if source is not None:
+            assert is_draft(source, Source)
 
         # draft
         self.drafts.source = source
 
         # get trace type
-        self._trace_type = self._get_type(type)
-        self._kwargs = ParameterPack(**kwargs)
+        self._trace_type = type
+        self._trace_config = dict(**kwargs)
 
         # initialize instances
         self._source = None
+        self._loaded_source = None
 
     @parallelizable
     def load(self, input: Any =None, force: bool =False, **kwargs) -> bool:
@@ -262,15 +289,29 @@ class BaseTrace(BasePlotObject):
             (bool) if is loaded
         '''
 
-        assert self._already_setup_trace, 'The trace is not ready, please call setup(), first.'
+        assert self._already_setup_object, 'The trace is not ready, please call setup() before calling load()'
         
-        if (not self.loaded) or (force):
-            self._loaded_source = self._source(input=input, force=force, **kwargs)
+        if (not self.loaded) or (force) or (input):
+            # load from source
+            if self._source is not None:
+                self._loaded_source = self._source(input=input, force=force, **kwargs)
+            # load from input
+            else:
+                self._loaded_source = input
 
         return self.loaded
 
 
     # === Sub interfaces ===
+
+    def _setup_object(self, key: Key =Draft.default, **kwargs) -> NoReturn:
+        '''
+        Setup object
+        '''
+
+        # setup source
+        if self.drafts.source is not None:
+            self._source = Instantiate(self.drafts.source, key=key).setup(key=key, **kwargs)
 
     @abc.abstractmethod
     def _execute_object(self, input: Any =None, combine_source=False, **kwargs) -> Any:
@@ -285,11 +326,13 @@ class BaseTrace(BasePlotObject):
 
         raise NotImplementedError('Method not implemented!')
 
-    def _setup_object(self, key: Key =Draft.default, **kwargs) -> NoReturn:
+    def _update_object(self, *args, **kwargs):
+        '''
+        Update object
+        '''
 
-        # setup source
-        if self.drafts.source is not None:
-            self._source = Instantiate(self.drafts.source, key=key).setup(key=key, **kwargs)
+        if self._source is not None:
+            self._source.update(*args, **kwargs)
     
 
     @load.unroll
@@ -301,14 +344,22 @@ class BaseTrace(BasePlotObject):
             context: (Any) context objects
         '''
 
-        assert self._already_setup_trace, 'The trace is not ready, please call setup(), first.'
+        assert self._already_setup_object, 'The trace is not ready, please call setup(), first.'            
 
-        if (not self.loaded) or (force):
-            # parallelize if parallelizable
-            if is_unrollable(self._source):
-                yield from self._source.unrolled(input=input, force=force, context=context, **kwargs)
+        if (not self.loaded) or (input) or (force):
+
+            # load from source
+            if self._source is not None:
+                # parallelize if parallelizable
+                if is_unrollable(self._source):
+                    yield from self._source.unrolled(input=input, force=force, context=context, **kwargs)
+                # sequential
+                else:
+                    self._loaded_source = self._source(input=input, force=force, **kwargs)
+
+            # directly load from input
             else:
-                self._loaded_source = self._source(input=input, force=force, **kwargs)
+                self._loaded_source = input
 
         else:
             return
@@ -325,13 +376,6 @@ class BaseTrace(BasePlotObject):
 
         return res
 
-    @abc.abstractmethod
-    def _get_type(self, type: Any) -> Any:
-        '''
-        Get trace type
-        '''
-        return type
-
 
 class BaseSubplotHandler(argshandler(sig='self, row, col')):
     __doc__ = '''\
@@ -339,7 +383,7 @@ class BaseSubplotHandler(argshandler(sig='self, row, col')):
 
     A wrapper to wrap BaseGraph
     '''
-    def __init__(self, graph: BaseGraph, row: int, col: int, **kwargs) -> NoReturn:
+    def __init__(self, graph: 'BaseGraph', row: int, col: int, **kwargs) -> NoReturn:
         super(BaseSubplotHandler, self).__init__(graph, row, col, **kwargs)
         self.graph = graph
 
@@ -386,7 +430,7 @@ class BaseGraph():
     def __call__(self, *args, **kwargs):
         return self.plot()
 
-    def __getitem__(self, key: Union[int, Tuple(int, int)]) -> BaseSubplotHandler:
+    def __getitem__(self, key: Union[int, Tuple[int, int]]) -> BaseSubplotHandler:
         '''
         Args:
             key: (int or Tuple(int, int)) index or (row, col)
@@ -421,7 +465,7 @@ class BaseGraph():
         if len(args) == 1:
             row, col = self._subplot_indices[args[0]]
         elif len(args) == 2:
-            row, col = *args
+            row, col, *_ = args
         else:
             raise ValueError('Unknown args: {}'.format(args))
         
