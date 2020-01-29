@@ -7,12 +7,15 @@ import logging
 # --- 3rd party ---
 import numpy as np
 import pandas as pd
+import scipy.stats as st
 
 # --- my module ---
 from cyaegha import logger
 
+from cyaegha.common.utils import flatten
 from cyaegha.common.utils import is_array
 from cyaegha.common.utils import error_msg
+
 
 from cyaegha.plot.process.base import BaseProcess
 
@@ -21,7 +24,9 @@ __all__ = [
     'Process',
     'Interpolation',
     'BatchAverage',
-    'Smoothing'
+    'Smoothing',
+    'Combine',
+    'ConfidenceInterval'
 ]
 
 class Process(BaseProcess):
@@ -131,12 +136,12 @@ class Interpolation(BaseProcess):
         proc_data = proc_data.set_index(xaxis)
         proc_data = proc_data.interpolate(method='index')
 
-        if not ignore_nan:
+        if default_values is not None:
 
             # fill in uninterpolable NaN
-            if default_values is None:
-                raise ValueError('default_values must be specified, or set ignore_nan=True')
-            elif isinstance(default_values, str):
+            # if default_values is None:
+            #     raise ValueError('default_values must be specified, or set ignore_nan=True')
+            if isinstance(default_values, str):
                 proc_data = proc_data.fillna(method=default_values)
             else:
                 proc_data = proc_data.fillna(default_values)
@@ -235,7 +240,7 @@ class Smoothing(BaseProcess):
         super(Smoothing, self).__init__(name=name, slice_inputs=True, **kwargs)
         self._window_size = window_size
         self._window_type = window_type
-        self._apply_columns = apply_columns
+        self._apply_columns = set(apply_columns)
         self._exclude_columns = exclude_columns
 
     # === Sub interfaces ===
@@ -272,7 +277,8 @@ class Smoothing(BaseProcess):
         apply_cols = apply_cols or data.columns
 
         # find difference between columns and excluded columns
-        apply_cols = apply_cols.difference(exclude_cols)
+        if exclude_cols is not None:
+            apply_cols = apply_cols.difference(exclude_cols)
 
         # only apply to the numerical columns
         apply_cols = apply_cols & numeric_columns
@@ -281,9 +287,169 @@ class Smoothing(BaseProcess):
         proc_data = data[apply_cols]
 
         # smoothing
-        proc_data = proc_data.rolling(window=window_size, min_periods=1, win_type=window_type)
+        proc_data = proc_data.rolling(window=window_size, min_periods=1, win_type=window_type).mean()
 
         # update with smoothed data
         data.update(proc_data)
+
+        return data
+
+
+
+
+class Combine(BaseProcess):
+    '''
+    Combine all pd.DataFrame
+    '''
+
+    # === Main interfaces ===
+    def __init__(self, name, **kwargs):
+        super(Combine, self).__init__(name=name, slice_inputs=False, **kwargs)
+
+
+    # === Sub interfaces ===
+    def _forward_process(self, input, **kwargs):
+        '''
+        Override BaseProces._forward_process
+        '''
+        return self._combine(input)
+
+    def _error_message(self):
+        '''
+        Override BaseProcess._error_message
+        '''
+        return 'Failed to combine pd.DataFrame'
+
+    # === Functions ===
+
+    @classmethod
+    def _combine(cls, data):
+        
+        if isinstance(data, pd.DataFrame):
+            return data
+        elif is_array(data):
+            flattened_data = flatten(data)
+
+            assert all(isinstance(d, pd.DataFrame) for d in flattened_data), 'data must be pd.DataFrame or a list of pd.DataFrame'
+
+            data = pd.concat( flattened_data )
+            return data
+        else:
+            raise ValueError('Receive unknown type: {}'.format(type(data)))
+
+
+
+
+
+class ConfidenceInterval(BaseProcess):
+    '''
+    Compute confidence interval
+    '''
+
+    # === Main interfaces ===
+
+    def __init__(self, name, xaxis, yaxis, ci=0.95, hi_col='high', lo_col='low', mean_col='mean', **kwargs):
+
+        super(ConfidenceInterval, self).__init__(name=name, slice_inputs=True, **kwargs)
+
+        self._xaxis = xaxis
+        self._yaxis = yaxis
+        self._ci = ci
+        self._hi_col = hi_col
+        self._lo_col = lo_col
+        self._mean_col = mean_col
+
+    # === Sub interfaces ===
+    def _forward_process(self, input, **kwargs):
+        '''
+        Override BaseProces._forward_process
+        '''
+        return self._interval(input)
+
+    def _error_message(self):
+        '''
+        Override BaseProcess._error_message
+        '''
+        return 'Failed to compute confidence interval'
+
+    # === Functions ===
+
+    def _interval(self, data):
+
+        xaxis = self._xaxis
+        yaxis = self._yaxis
+        ci = self._ci
+        hi_col = self._hi_col
+        lo_col = self._lo_col
+        mean_col = self._mean_col
+
+        # type check
+        assert isinstance(data, pd.DataFrame), 'data must be a DataFrame, got {}'.format(type(data))
+        # empty check
+        assert not data.empty, 'data is empty'
+
+        # print warning if data as NaN value
+        if data.isnull().values.any():
+            self.LOG.warning('the data has NaN values')
+
+            self.LOG.set_header()
+            self.LOG.add_rows(data.isna().any(axis=1).head(n=5), fmt='{}')
+            self.LOG.flush('WARN')
+        
+        # get default x column
+        if xaxis is None:
+            xaxis = data.index
+        
+        # get default y column (first numeric column)
+        if yaxis is None:
+            columns = data.select_dtypes(include=np.number).columns
+
+            assert len(columns) > 0, 'No numeric columns found'
+            yaxis = columns[0]
+
+        # group the data by x column
+        groups = data.groupby(xaxis)
+
+        # get the number of group
+        num_groups = len(groups)
+
+        # initialize the x series
+        xs = np.zeros(num_groups)
+
+        # initialize h
+        hs = np.zeros(num_groups)
+        # initialize y series
+        y_mean = np.zeros(num_groups)
+
+        for idx, (x, group) in enumerate(groups):
+            # get y series
+            y = group[yaxis]
+
+            # get number of y
+            num = len(y)
+
+            # calculate mean and ignore NaN
+            mean_s = np.nanmean(y)
+
+            # only calculate bounds of confidence interval when the number of Ys are more than 1
+            if num > 1:
+                std_err = st.sem(y)
+                hs[idx] = std_err * st.t.ppf((1 + ci) / 2, num - 1)
+            else:
+                hs[idx] = 0
+
+            # add x to the list
+            xs[idx] = x
+
+            # add mean values to the list
+            y_mean[idx] = mean_s
+
+        y_lo = y_mean - hs
+        y_hi = y_mean + hs
+
+        data = pd.DataFrame({xaxis: xs, 
+                            hi_col: y_hi, 
+                            lo_col: y_lo, 
+                            mean_col: y_mean})
 
         return data

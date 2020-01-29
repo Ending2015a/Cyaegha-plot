@@ -65,7 +65,7 @@ class BaseProcess(BaseModule):
                     output = self._forward_process(data, **kwargs)
                     outputs.append(output)
             else:
-                outputs = self._forward_process(data, **kwargs)
+                outputs = self._forward_process(input, **kwargs)
         
         except Exception as e:
 

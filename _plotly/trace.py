@@ -314,7 +314,6 @@ def _interval(self, data, x_col=None, y_col=None, ci: float=0.95, **kwargs):
     References:
         * https://github.com/elsa-lab/plotting-wand/blob/master/plotting_wand/helpers/plotting.py
     '''
-
     # check data type
     if not isinstance(data, pd.DataFrame):
         raise ValueError('data must be a pandas.DataFrame')
@@ -347,9 +346,9 @@ def _interval(self, data, x_col=None, y_col=None, ci: float=0.95, **kwargs):
     # initialize the x series
     xs = np.zeros(num_groups)
 
+    # initialize h
+    hs = np.zeros(num_groups)
     # initialize y series
-    y_lo = np.zeros(num_groups)
-    y_hi = np.zeros(num_groups), 
     y_mean = np.zeros(num_groups)
 
     for idx, (x, group) in enumerate(groups):
@@ -365,20 +364,20 @@ def _interval(self, data, x_col=None, y_col=None, ci: float=0.95, **kwargs):
         # only calculate bounds of confidence interval when the number of Ys are more than 1
         if num > 1:
             std_err = st.sem(y)
-            h = std_err * st.t.ppf((1 + ci) / 2, num - 1)
-            lo, hi = mean_s - h, mean_s + h
+            hs[idx] = std_err * st.t.ppf((1 + ci) / 2, num - 1)
         else:
-            lo, hi = mean_s, mean_s
+            hs[idx] = 0
+
+
 
         # add x to the list
         xs[idx] = x
 
-        # add bounds to the lists
-        y_lo[idx] = lo
-        y_hi[idx] = hi
-
         # add mean values to the list
         y_mean[idx] = mean_s
+
+    y_lo = y_mean - hs
+    y_hi = y_mean + hs
 
     # set common attributes for building traces for confidence interval
     ci_attrs = dict(hoverinfo='skip', line_width=0,
@@ -396,3 +395,40 @@ def _interval(self, data, x_col=None, y_col=None, ci: float=0.95, **kwargs):
     # return the lower bound, upper bounds and mean values traces
     return [trace_lo, trace_hi, trace_mean]
 
+
+@Trace.register(name='ci3', alias=['CI3'])
+def _ci3(self, data, x_col, lo_col, hi_col, mean_col, **kwargs):
+
+
+    if not isinstance(data, pd.DataFrame):
+        raise ValueError('data must be a pandas.DataFrame')
+
+    # print warning if data as NaN value
+    if data.isnull().values.any():
+        self.LOG.warning('the data has NaN values')
+
+        self.LOG.set_header()
+        self.LOG.add_rows(data.isna().any(axis=1).head(n=5), fmt='{}')
+        self.LOG.flush('WARN')
+
+
+    xs = data[x_col].to_numpy()
+    y_lo = data[lo_col].to_numpy()
+    y_hi = data[hi_col].to_numpy()
+    y_mean = data[mean_col].to_numpy()
+
+    # set common attributes for building traces for confidence interval
+    ci_attrs = dict(hoverinfo='skip', line_width=0,
+                    mode='lines', showlegend=False)
+
+    # build the lower bounds line
+    trace_lo = go.Scatter(x=xs, y=y_lo, fill=None, **ci_attrs, **kwargs)
+
+    # build the upper bounds line which fills the area
+    trace_hi = go.Scatter(x=xs, y=y_hi, fill='tonexty', **ci_attrs, **kwargs)
+
+    # build the mean values line
+    trace_mean = go.Scatter(x=xs, y=y_mean, mode='lines', **kwargs)
+
+    # return the lower bound, upper bounds and mean values traces
+    return [trace_lo, trace_hi, trace_mean]

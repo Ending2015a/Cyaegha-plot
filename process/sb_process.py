@@ -19,6 +19,8 @@ import plotly.graph_objects as go
 from cyaegha import logger
 
 from cyaegha.common.route import Route
+from cyaegha.common.utils import error_msg
+
 from cyaegha.plot.process.base import BaseProcess
 
 __all__ = [
@@ -50,6 +52,14 @@ class LoadMonitorResultsError(Exception):
     pass
 
 
+def get_monitor_files(path):
+    """
+    get all the monitor files in the given path
+    :param path: (str) the logging folder
+    :return: ([str]) the log files
+    """
+    return glob(os.path.join(path, "*" + 'monitor.csv'))
+
 def load_monitors(path):
     """
     Copy from hill-a/stable-baselines: 
@@ -66,7 +76,7 @@ def load_monitors(path):
     # get both csv and (old) json files
     monitor_files = (glob(os.path.join(path, "*monitor.json")) + get_monitor_files(path))
     if not monitor_files:
-        raise LoadMonitorResultsError("no monitor files of the form *%s found in %s" % (Monitor.EXT, path))
+        raise LoadMonitorResultsError("no monitor files of the form *%s found in %s" % ('monitor.csv', path))
     data_frames = []
     headers = []
     for file_name in monitor_files:
@@ -140,6 +150,7 @@ def load_results(dirs, num_timesteps, xaxis):
 
     tslist = []
     for folder in dirs:
+        folder = folder.replace('[', '&#91;').replace(']', '&#93;').replace('&#91;', '[[]').replace('&#93;', '[]]')
         timesteps = load_monitors(folder)
         if num_timesteps is not None:
             timesteps = timesteps[timesteps.l.cumsum() <= num_timesteps]
@@ -206,7 +217,7 @@ class StableBaselinesProcess(BaseProcess):
                 result = results[0]
 
                 # convert to DataFrame
-                outputs = df.DataFrame({self._xaxis: result[0].astype(np.int64),
+                outputs = pd.DataFrame({self._xaxis: result[0].astype(np.int64),
                                         'rewards': result[1].astype(np.float32)})
             
 

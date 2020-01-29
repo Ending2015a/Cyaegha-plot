@@ -25,6 +25,7 @@ from cyaegha import logger
 from cyaegha.common.base import BaseModule
 from cyaegha.common.draft import Key
 from cyaegha.common.draft import Draft
+from cyaegha.common.draft import Instantiate
 from cyaegha.common.draft import is_draft
 from cyaegha.common.utils import is_array
 

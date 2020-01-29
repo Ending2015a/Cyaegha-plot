@@ -7,6 +7,8 @@ from .mid_ware import Process
 from .mid_ware import Interpolation
 from .mid_ware import BatchAverage
 from .mid_ware import Smoothing
+from .mid_ware import Combine
+from .mid_ware import ConfidenceInterval
 
 __all__ = [
     'BaseProcess',
@@ -15,11 +17,12 @@ __all__ = [
     'Process',
     'Interpolation',
     'BatchAverage',
-    'Smoothing'
+    'Smoothing',
+    'Combine',
+    'ConfidenceInterval',
 ]
 
 try:
-    import stable_baselines
     from .sb_process import StableBaselinesProcess
 
     # alias
