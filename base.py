@@ -2,6 +2,7 @@
 import os
 import abc
 import sys
+import copy
 import time
 import inspect
 import logging
@@ -9,6 +10,7 @@ import logging
 from typing import Any
 from typing import Union
 from typing import Tuple
+from typing import Generic
 from typing import Callable
 from typing import Hashable
 from typing import NoReturn
@@ -32,6 +34,7 @@ from cyaegha.common.route import Route
 
 from cyaegha.common.utils import ParameterPack
 from cyaegha.common.utils import counter
+from cyaegha.common.utils import is_array
 
 from cyaegha.common.parallel import parallelizable
 from cyaegha.common.parallel import is_parallelizable
@@ -109,11 +112,11 @@ class BasePlotObject(metaclass=abc.ABCMeta):
         The results are cached on `outputs` property.
         '''
 
-        self._cached_outputs = self._execute_object(*args, **kwargs)
+        self._cached_outputs = self._forward_object(*args, **kwargs)
     
         return self._cached_outputs
 
-    def setup(self, *args, force: bool =True, **kwargs) -> 'BasePlotObject':
+    def setup(self, *args, force: bool =False, **kwargs) -> 'BasePlotObject':
         '''
         Setup object or sub-modules
 
@@ -177,7 +180,7 @@ class BasePlotObject(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def _execute_object(self, *args, **kwargs):
+    def _forward_object(self, *args, **kwargs):
         '''
         Define the forward pass of this module.
         '''
@@ -219,6 +222,25 @@ class BasePlotObject(metaclass=abc.ABCMeta):
 class BaseTrace(BasePlotObject):
     '''
     BaseTrace
+
+    The base class of Trace for each plotting backend
+
+    Properties:
+        loaded: (bool) whether the data is loaded
+        loaded_source: (Any) loaded outputs from source
+        type: (Hashable) trace type
+        config: (dict) trace configurations
+
+    Main interfaces:
+        __init__: 
+        __call__:
+        load: (Parallelizable, Unrollable) load sources
+        unload: unload sources
+
+    Sub interfaces:
+        _setup_object: 
+        _forward_object: (override)
+        _update_object:
     '''
 
     # === Properties ===
@@ -229,26 +251,26 @@ class BaseTrace(BasePlotObject):
         Whether the data is loaded
         '''
         if self._source is not None:
-            return (self._already_setup_object) and (self._source.loaded)
+            return (self._loaded) and (self._source.loaded)
         else:
-            return self._already_setup_object
+            return self._loaded
 
     @property
-    def sources(self) -> Any:
+    def loaded_source(self) -> Any:
         '''
-        Loaded sources
+        Loaded source
         '''
         return self._loaded_source
 
     @property
-    def type(self) -> Any:
+    def type(self) -> Hashable:
         '''
         Trace type
         '''
         return self._trace_type
 
     @property
-    def config(self) -> dict:
+    def config(self) -> Route:
         '''
         Trace configurations
         '''
@@ -265,6 +287,8 @@ class BaseTrace(BasePlotObject):
 
         # initialize BasePlotObject
         super(BaseTrace, self).__init__(name=name, **kwargs)
+        # pop out unused args
+        kwargs.pop('log_level', None)
 
         if source is not None:
             assert is_draft(source, Source)
@@ -274,11 +298,32 @@ class BaseTrace(BasePlotObject):
 
         # get trace type
         self._trace_type = type
-        self._trace_config = dict(**kwargs)
+        self._trace_config = Route(kwargs)
 
         # initialize instances
-        self._source = None
-        self._loaded_source = None
+        self._source: Optional[Source] = None
+        self._loaded_source: Any = None
+        self._loaded: bool = False
+
+
+    def __call__(self, input: Any =None, force: bool =False, **kwargs) -> Any:
+        '''
+        Generate traces
+
+        The results are cached on `outputs` property.
+        '''
+
+        # load sources
+        if (not self._loaded) or (input is not None):
+
+            self.LOG.debug('Loading sources')
+            assert self.load(input=input, force=force, **kwargs), 'Failed to load sources'
+        
+        # generate traces
+        self.LOG.debug('Generating traces')
+        self._cached_outputs = self._forward_object(input=self.loaded_source, force=force, **kwargs)
+    
+        return self._cached_outputs
 
     @parallelizable
     def load(self, input: Any =None, force: bool =False, **kwargs) -> bool:
@@ -291,15 +336,30 @@ class BaseTrace(BasePlotObject):
 
         assert self._already_setup_object, 'The trace is not ready, please call setup() before calling load()'
         
-        if (not self.loaded) or (force) or (input):
-            # load from source
-            if self._source is not None:
-                self._loaded_source = self._source(input=input, force=force, **kwargs)
-            # load from input
-            else:
-                self._loaded_source = input
+        # load from source
+        if self._source is not None:
+            self._loaded_source = self._source(input=input, force=force, **kwargs)
+        # load from input
+        else:
+            self._loaded_source = copy.deepcopy(input)
+        
+        self._loaded = True
 
         return self.loaded
+
+    def unload(self):
+        '''
+        Unload sources
+
+        Set loaded flag to False
+        '''
+
+        # unload source
+        if self._source is not None:
+            self._source.unload()
+
+        # unload self
+        self._loaded = False
 
 
     # === Sub interfaces ===
@@ -314,7 +374,7 @@ class BaseTrace(BasePlotObject):
             self._source = Instantiate(self.drafts.source, key=key).setup(key=key, **kwargs)
 
     @abc.abstractmethod
-    def _execute_object(self, input: Any =None, combine_source=False, **kwargs) -> Any:
+    def _forward_object(self, input: Any =None, combine_source=False, **kwargs) -> Any:
         '''
         Args:
             combine_source: (bool) if the loaded source is a list of pandas.Dataframe, 
@@ -334,6 +394,7 @@ class BaseTrace(BasePlotObject):
         if self._source is not None:
             self._source.update(*args, **kwargs)
     
+    # === Private ===
 
     @load.unroll
     def _load_unroll(self, input: Any =None, force: bool =False, context: Any =None, **kwargs) -> Generator[Callable, None, None]:
@@ -342,28 +403,47 @@ class BaseTrace(BasePlotObject):
             input: (list of Any)
             force: (bool) force forward
             context: (Any) context objects
+
+        TODO: return self._loaded
         '''
 
-        assert self._already_setup_object, 'The trace is not ready, please call setup(), first.'            
+        assert self._already_setup_object, 'The trace is not ready, please call setup() before calling load()'
+        
+        # load from source
+        if self._source is not None:
+            # parallelize
+            if is_unrollable(self._source):
 
-        if (not self.loaded) or (input) or (force):
+                yield from self._source.unrolled(input=input, force=force, context=context, **kwargs)
 
-            # load from source
-            if self._source is not None:
-                # parallelize if parallelizable
-                if is_unrollable(self._source):
-                    yield from self._source.unrolled(input=input, force=force, context=context, **kwargs)
-                # sequential
-                else:
-                    self._loaded_source = self._source(input=input, force=force, **kwargs)
-
-            # directly load from input
+            # sequential
             else:
-                self._loaded_source = input
 
+                # TODO
+                # manually setting context.fin to True
+                def _callback(result, context):
+                    with context.lock:
+                        context.fin = True
+                    return result
+                
+                # code: self._loaded_source = self._source(input=input, force=force, **kwargs)
+                yield parallelizable.wrap(self._source, callback=_callback)(input=input, force=force, **kwargs)
+
+                
+
+        # load from input
         else:
-            return
-            yield
+
+            # TODO
+            # manually setting context.fin to True
+            def _callback(result, context):
+                with context.load:
+                    context.fin = True
+                return result
+            
+            # code: self._loaded_source = copy.deepcopy(input)
+            yield parallelizable.wrap(copy.deepcopy, callback=_callback)(input)
+
 
     @load.callback
     def _load_callback(self, res: Any, context: Any) -> bool:
@@ -371,10 +451,94 @@ class BaseTrace(BasePlotObject):
         Callback function
         '''
 
-        if context.fin:
+        if context.fin: # context.fin attribute inherits from source
             self._loaded_source = self._source.outputs
+            self._loaded = True
 
         return res
+
+    @load.parallel
+    def _load_parallel(self, threads: int =1, pool: Any =None) -> Callable:
+        '''
+        Custom parallel function
+
+        Note, this method only supports thread-based parallelization
+
+        Example:
+        >>> trace.load.parallelize(threads=3)(input=input, force=force, **kwargs)
+        True
+
+        Args:
+            threads: (int) thread count, must greater or equal to 1
+            pool: (Any) any pool implementations that has map function.
+        '''
+
+        if pool is None:
+            assert threads >= 1, 'Thread count must greater or equal to 1'
+        
+        create_pool = True if pool is None else False
+
+        def _exec(*_args, **_kwargs):
+            if create_pool:
+                # creating thread pool, mapping
+                with ThreadPoolExecutor(max_workers=threads) as pool:
+                    # execute all functions
+                    list(pool.map(lambda f: f(), self.load.unrolled(*_args, **_kwargs)))
+            else:
+                # using exists thread pool, mapping
+                list(pool.map(lambda f: f(), self.load.unrolled(*_args, **_kwargs)))
+
+            return self.loaded
+
+        return _exec
+
+
+class _TraceWrapper():
+
+    # === Properties ===
+
+    @property
+    def params(self) -> ParameterPack:
+        '''
+        Return predefined parameters
+        '''
+
+        return self._wrapped_params
+
+    @property
+    def trace(self):
+        '''
+        Return wrapped trace
+        '''
+
+        return self._wrapped_trace
+
+    # === Main interfaces ===
+
+    def __init__(self, trace, kwargs):
+        
+        # unwrap redundant TraceWrapper(s)
+        self._wrapped_trace = self._unwrap(trace)
+        self._wrapped_params = ParameterPack(**kwargs)
+
+    def __call__(self, *args, **kwargs):
+        return self._wrapped_trace(*args, **kwargs)
+
+    # === Private ===
+
+    @classmethod
+    def _unwrap(cls, trace):
+        '''
+        Unwrap TraceWrapper(s)
+
+        The trace can only be wrapped in one layer of TraceWrapper
+        '''
+
+        while isinstance(trace, cls):
+            trace = trace._wrapped_trace
+
+        return trace
+
 
 
 class BaseSubplotHandler(argshandler(sig='self, row, col')):
@@ -383,14 +547,17 @@ class BaseSubplotHandler(argshandler(sig='self, row, col')):
 
     A wrapper to wrap BaseGraph
     '''
-    def __init__(self, graph: 'BaseGraph', row: int, col: int, **kwargs) -> NoReturn:
-        super(BaseSubplotHandler, self).__init__(graph, row, col, **kwargs)
-        self.graph = graph
+    # === Properties ===
 
     @property
     def traces(self):
         return self.get_traces()
 
+    # === Main interfaces ===
+
+    def __init__(self, graph: 'BaseGraph', row: int, col: int, **kwargs) -> NoReturn:
+        super(BaseSubplotHandler, self).__init__(graph, row, col, **kwargs)
+        self.graph = graph
     
     # served funcs:
     #     def add_trace(self, trace)
@@ -399,9 +566,34 @@ class BaseSubplotHandler(argshandler(sig='self, row, col')):
     
 
 
-class BaseGraph():
-    # === built-in methods ===
-    def __init__(self, rows: int=1, cols: int=1, **kwargs) -> NoReturn:
+class BaseGraph(BasePlotObject):
+
+    # === Properties ===
+    @property
+    def rows(self) -> int:
+        return self._subplot[0]
+
+    @property
+    def cols(self) -> int:
+        return self._subplot[1]
+
+    @property
+    def loaded(self) -> bool:
+        '''
+        Whether all traces are set up
+        '''
+        return all([t.loaded for t in self._flatten_traces()])
+
+    @property
+    def config(self) -> Route:
+        '''
+        Return configurations
+        '''
+        return self._graph_config
+
+    # === Main interfaces ===
+
+    def __init__(self, name: str, rows: int=1, cols: int=1, **kwargs) -> NoReturn:
         '''
         Create Graph
 
@@ -409,8 +601,10 @@ class BaseGraph():
         cols: (int)
         '''
 
+        super(BaseGraph, self).__init__(name=name, **kwargs)
+
         self._subplot = (rows, cols)
-        self._kwargs = ParameterPack(**kwargs)
+        self._graph_config = Route()
 
         self._subplot_traces = {}
         self._subplot_indices = {}
@@ -419,16 +613,24 @@ class BaseGraph():
         count = counter()
 
         # indexing subplot
-        for r in range(self._subplot[0]):
-            for c in range(self._subplot[1]):
-                if 'specs' in self._kwargs.keys():
-                    if self._kwargs.specs[r][c] is not None:
-                        self._subplot_indices[count()] = (r, c)
-                else:
-                    self._subplot_indices[count()] = (r, c)
+        for r in range(rows):
+            for c in range(cols):
+                self._subplot_indices[next(count)] = (r, c)
 
-    def __call__(self, *args, **kwargs):
-        return self.plot()
+    def __call__(self, input: Any =None, force: bool =False, **kwargs) -> Any:
+        '''
+        Create graph
+
+        The results are cached on `outputs` property.
+        '''
+
+        if (not self.loaded) or (force):
+
+            assert self.load(input=input, force=force, **kwargs), 'Failed to load traces'
+
+        self._cached_outputs = self._forward_object(input=input, force=force, **kwargs)
+    
+        return self._cached_outputs
 
     def __getitem__(self, key: Union[int, Tuple[int, int]]) -> BaseSubplotHandler:
         '''
@@ -442,16 +644,21 @@ class BaseGraph():
         else:
             raise ValueError('Unknown arguments: {}'.format(key))
 
-    # === properties ===
-    @property
-    def rows(self) -> int:
-        return self._subplot[0]
+    @parallelizable
+    def load(self, input: Any =None, force: bool =False, **kwargs) -> bool:
+        '''
+        Load traces
+        '''
+        
+        return all([t.load(input=input, force=force, **kwargs) 
+                            for t in self._flatten_traces()])
 
-    @property
-    def cols(self) -> int:
-        return self._subplot[1]
-
-    # === functions ===
+    def unload(self):
+        '''
+        Unload traces
+        '''
+        for t in self._flatten_traces():
+            t.unload()
 
     @abc.abstractmethod
     def plot(self):
@@ -467,12 +674,12 @@ class BaseGraph():
         elif len(args) == 2:
             row, col, *_ = args
         else:
-            raise ValueError('Unknown args: {}'.format(args))
+            raise ValueError('Unknown arguments: {}'.format(args))
         
         return BaseSubplotHandler(self, row, col)
 
     @BaseSubplotHandler.serve()
-    def add_trace(self, trace, row=1, col=1):
+    def add_trace(self, trace, row=1, col=1, **kwargs):
         '''
         Add new trace to subplot
 
@@ -480,16 +687,19 @@ class BaseGraph():
             trace: (BaseTrace) new trace to add
             row: (int) subplot row
             col: (int) subplot col
+        
+        Kwargs:
+            (parameters for generating traces)
         '''
 
         # assert (row, col)
-        assert row <= self._subplot[0] and col <= self._subplot[1]
+        assert row <= self.rows and col <= self.cols
 
         # create array
         if (row, col) not in self._subplot_traces.keys():
             self._subplot_traces[(row, col)] = []
 
-        self._subplot_traces.append(trace)
+        self._subplot_traces[(row, col)].append( _TraceWrapper(trace, kwargs) )
 
         return self
 
@@ -510,7 +720,9 @@ class BaseGraph():
         if (row, col) not in self._subplot_traces.keys():
             self._subplot_traces[(row, col)] = []
 
-        return self._subplot_traces[(row, col)]
+
+
+        return [t.trace for t in self._subplot_traces[(row, col)]]
 
     @BaseSubplotHandler.serve()
     def remove_trace(self, trace, row=1, col=1):
@@ -523,7 +735,7 @@ class BaseGraph():
             col: (int) subplot col
         '''
 
-        assert row <= self._subplot[0] and col <= self._subplot[1]
+        assert row <= self.rows and col <= self.cols
 
         if (row, col) not in self._subplot_traces.keys():
             self._subplot_traces[(row, col)] = []
@@ -534,7 +746,133 @@ class BaseGraph():
 
         elif isinstance(trace, BaseTrace):
             # remove trace if it contains in the array
-            if trace in self._subplot_traces[(row, col)]:
-                self._subplot_traces[(row, col)].remove(trace)
+            for idx, t in reversed(list(enumerate(self._subplot_traces[(row, col)]))):
+                if t.trace is trace:
+                    del self._subplot_traces[(row, col)][idx]
             
         return self
+
+    # === Sub interfaces ===
+
+    def _setup_object(self, *args, **kwargs):
+        '''
+        Setup traces
+
+        #TODO: the original `setup` function would protect the second call to this function,
+            unless the users assign `force=True` when calling the function. The question is:
+            is it better to remove such the protextion to let users can call `setup` many times?
+        '''
+
+        for trace in self._flatten_traces():
+            trace.setup(*args, **kwargs)
+
+    @abc.abstractmethod
+    def _forward_object(self, *args, **kwargs):
+        '''
+        Load traces and plot graph
+        
+        1. call load()
+        2. call plot()
+        '''
+        pass
+
+    def _update_object(self, *args, **kwargs):
+        '''
+        Update traces
+        '''
+
+        for trace in self._flatten_traces():
+            trace.update(*args, **kwargs)
+
+    def _flatten_traces(self):
+        '''
+        Convert all traces into a single list
+        '''
+
+        traces = []
+
+        for k, ts in self._subplot_traces.items():
+            traces.extend([t.trace for t in ts])
+
+        return traces
+
+    def _flatten_traces_tuple(self):
+        '''
+        Convert all _TraceWrapper tuple into a single list
+        '''
+
+        traces = []
+
+        for k, ts in self._subplot_traces.items():
+            traces.extend(ts)
+
+        return traces
+
+    def _generate_traces(self):
+        '''
+        Generate traces
+
+        return (trace, (row, col))
+        '''
+
+        all_traces = []
+
+        for k, ts in self._subplot_traces.items():
+            for t in ts:
+                traces = t.trace(**t.params)
+
+                if is_array(traces):
+                    for trace in traces:
+                        all_traces.append( (trace, k) )
+                else:
+                    all_traces.append( (traces, k) )
+
+        return all_traces
+
+    # === Private ===
+
+    @load.parallel
+    def _load_parallel(self, threads: int =1, pool: Any =None) -> Callable:
+        '''
+        Load parallel
+
+        NOTE: Currently only support parallelizing in a single Trace
+        NOTE: thread-based 
+        '''
+        
+        if pool is None:
+            assert threads >= 1, 'Thread count must greater or equal to 1'
+
+        create_pool = True if pool is None else False
+
+        traces = self._flatten_traces()
+
+        def _exec(*_args, **_kwargs):
+            
+            results = []
+            if create_pool:
+                # create thread pool
+                with ThreadPoolExecutor(max_workers=threads) as _pool:
+                    for trace in traces:
+                        # if trace.load can be paralellized
+                        if is_parallelizable(trace.load):
+                            results.append( trace.load.parallelize(pool=_pool)(*_args, **_kwargs) )
+                        # sequential call
+                        else:
+                            results.append( trace.load(*_args, **_kwargs) )
+            else:
+
+                for trace in traces:
+                    # if trace.load can be paralellized
+                    if is_parallelizable(trace.load):
+                        results.append( trace.load.parallelize(pool=pool)(*_args, **_kwargs) )
+                    # sequential call
+                    else:
+                        results.append( trace.laod(*_args, **_kwargs))
+
+
+            return all(results)
+
+        return _exec
+
+        

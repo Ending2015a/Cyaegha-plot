@@ -67,16 +67,16 @@ def _load_matplotlib():
 def _load_plotly():
     import plotly
 
-    from cyaegha.plot._plotly import Trace
+    from cyaegha.plot._plotly import Trace, Graph
 
-    return Trace
+    return Trace, Graph
     
 
 # get plotting backend
 backend = os.environ.get('CYAEGHA_PLOT_BACKEND', 'plotly')
 
 try:
-    Trace = _load_backend(backend)
+    Trace, Graph = _load_backend(backend)
 
     LOG.info('cyaegha.plot backend: {}'.format(backend))
 

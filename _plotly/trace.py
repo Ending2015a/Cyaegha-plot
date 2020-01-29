@@ -114,28 +114,37 @@ class Trace(BaseTrace):
 
     # === Sub interfaces ===
 
-    def _execute_object(self, input: Any =None, 
+    def _forward_object(self, input: pd.DataFrame =None,
                               combine_source: bool =False, 
                               legend_group: Optional[str] =None, 
                               trace_configs: Union[list, dict] =dict(), **kwargs) -> Any:
         '''
-        Execute object
+        Forward object
 
         Args:
-            input: (str)
+            input: (pandas.DataFrame or list of pandas.DataFrame) loaded sources
             combine_source: (bool)
             legend_group: (str or None)
             trace_configs: (list of dict or dict)
         '''
 
-        if not self.load(input=input, **kwargs):
-            raise RuntimeError('Failed to load sources')
+        assert self.loaded, 'The data is not loaded'
 
-        # preprocess input
-        if (combine_source) and is_array(self.sources):
-            input = pd.concat(self.sources)
+        if is_array(input):
+
+            assert all(isinstance(d, pd.DataFrame) for d in input), 'Input must be a pandas.DataFrame\
+                                 or a list of pandas.DataFrame, got: {}'.format(input)
         else:
-            input = self.sources
+
+            assert isinstance(input, pd.DataFrame), 'Input must be a pandas.DataFrame or a list of\
+                                                 pandas.DataFrame, got {}'.format(input)
+
+        # preprocess input, type checking
+        if (combine_source) and is_array(input):
+
+            input = pd.concat(input)
+
+            
 
         # legend name
         self.config['name'] = self.name

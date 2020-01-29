@@ -1,7 +1,8 @@
 # --- built in ---
 import os
 import abc
-import sys 
+import sys
+import copy
 import time
 import types
 import logging
@@ -42,7 +43,7 @@ __all__ = [
 class Source(BaseModule):
 
     # === Attributes ===
-    
+
     # mark as parallelizable
     __parallelizable__ = True
     # mark as unrollable
@@ -128,6 +129,22 @@ class Source(BaseModule):
     def __call__(self, input: Any =None, force: bool =False, **kwargs):
         '''
         Load source
+
+        Args:
+            input: (Any) input data
+            force: (bool) force forward
+
+        Example:
+        * Static source (static=True)
+        >>> source = Instantiate(Source(static=True)).setup()
+        >>> output = source(input) # loaded
+        >>> output2 = source(input2) # blocked
+        >>> output2 = source(input2, force=True) #loaded
+
+        # Dynamic source (static=False)
+        >>> source = Instantiate(Source(static=False)).setup()
+        >>> output = source(input) # loaded
+        >>> output2 = source(input2) # loaded
         '''
 
         if (not self.static) or (not self._loaded) or (force):
@@ -135,9 +152,22 @@ class Source(BaseModule):
             self._cached_outputs = self._forward_module(input=input, force=force, **kwargs)
             # mark as loaded
             self._loaded = True
+        else:
+            # user is trying to reload static source but force=False
+            if (self.static) and (input is not None):
+                self.LOG.warning('trying to reload static source, set force=True to reload')
 
         return self._cached_outputs
 
+
+    def unload(self):
+        '''
+        Unload source
+
+        Set loaded flag to False
+        '''
+
+        self._loaded = False
 
     # === Sub interfaces ===
 
@@ -172,19 +202,17 @@ class Source(BaseModule):
         # get input from self._data
         if self._data is not None:
             input = input or self._data
-
         
         if self._process is not None:
+
             if self._slice_inputs and is_array(input):
-                output = []
-                for d in input:
-                    output.append( self._process(input=d, **kwargs) )
+                # slice inputs
+                output = [self._process(input=d, **kwargs) for d in input]
             else:
                 output = self._process(input=input, **kwargs)
         # no process specified
         else:
             output = input
-            
 
         return output
 
@@ -217,10 +245,13 @@ class Source(BaseModule):
         '''
 
         if (not self.static) or (not self._loaded) or (force):
-
             yield from self._forward_module.unrolled(input=input, force=force, context=context, **kwargs)
 
         else:
+            # user is trying to reload static source but force=False
+            if (self.static) and (input is not None):
+                self.LOG.warning('trying to reload static source, set force=True to reload')
+
             # return empty generator (yield nothing)
             return
             yield
@@ -297,7 +328,7 @@ class Source(BaseModule):
                 for idx, d in enumerate(input):
                     def _coroutine_factory(index, process, input, kwargs):
 
-                        def _coroutine(context):
+                        def _coroutine(*_args, **_kwargs):
                             result = process(input, **kwargs)
                             return (index, result)
 
@@ -312,7 +343,7 @@ class Source(BaseModule):
                     
                 def _coroutine_factory(index, process, input, kwargs):
 
-                    def _coroutine():
+                    def _coroutine(*_args, **_kwargs):
                         result = process(input, **kwargs)
                         return (index, result)
 
@@ -328,7 +359,7 @@ class Source(BaseModule):
             
             def _coroutine_factory(index, input):
 
-                def coroutine():
+                def coroutine(*_args, **_kwargs):
                     result = input
                     return (index, result)
 
