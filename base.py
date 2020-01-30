@@ -703,7 +703,6 @@ class BaseGraph(BasePlotObject):
         # create array
         if (row, col) not in self._subplot_traces.keys():
             self._subplot_traces[(row, col)] = []
-        self.LOG.info('kwargs: {}'.format(kwargs))
         self._subplot_traces[(row, col)].append( _TraceWrapper(trace, kwargs) )
 
         return self
