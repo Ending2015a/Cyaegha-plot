@@ -2,7 +2,9 @@
 import os
 import abc
 import sys
+import copy
 import time
+import json
 import logging
 
 from typing import Any
@@ -30,6 +32,7 @@ from plotly.subplots import make_subplots
 from cyaegha import logger
 
 from cyaegha.common.utils import counter
+from cyaegha.common.utils import is_array
 
 from cyaegha.plot.base import BaseGraph
 
@@ -66,6 +69,7 @@ class Graph(BaseGraph):
         # save settings
         self.config['subplot'] = {}
         self.config['layout'] = {}
+        self.config['traces'] = {}
         self.config['plot'] = {}
 
         self.update_subplot(rows=rows, cols=cols, specs=specs)
@@ -79,6 +83,9 @@ class Graph(BaseGraph):
         # assert all traces loaded
 
         assert self.loaded, 'The traces must be loaded'
+
+        self.LOG.info('Plotting graph')
+        start = time.time()
 
         # create figure
         fig = make_subplots(**self.config['subplot'])
@@ -97,6 +104,9 @@ class Graph(BaseGraph):
 
         #     fig.write_image(**config)
 
+        fig.update_layout(self.config['layout'])
+
+        self.LOG.info('Done in {} secs'.format(time.time() - start))
         return fig
 
     def update_subplot(self, arg: dict=None, **kwargs):
@@ -147,7 +157,20 @@ class Graph(BaseGraph):
         
         self.config['layout'].update(kwargs)
         
+    def update_traces(self, arg: dict=None, **kwargs):
+        '''
+        Update trace configurations
+        '''
+
+        if arg is not None:
+            self.config['traces'].update(arg)
+
+        self.config['traces'].update(kwargs)
+    
     def update_plot(self, arg: dict=None, **kwargs):
+        '''
+        Update plot configurations
+        '''
 
         if arg is not None:
             self.config['plot'].update(arg)
@@ -155,14 +178,84 @@ class Graph(BaseGraph):
         self.config['plot'].update(kwargs)
     
 
-    def load_preset():
-        pass
+    def load_preset(self, arg):
+        '''
+        Args:
+            arg: (str) filename, load from file, in json format
+                 (dict) dict like object, load from dict
+        '''
+        if isinstance(arg, str):
+            with open(arg, 'r') as f:
+                preset = json.load(f)
+        elif isinstance(arg, dict):
+            preset = dict
+        
+        self.update_subplot(preset.get('subplot', {}))
+        self.update_layout(preset.get('layout', {}))
+        self.update_traces(preset.get('traces', {}))
+        self.update_plot(preset.get('plot', {}))
 
-    def dump_preset():
-        pass
+    def dump_preset(self, arg=None):
+        '''
+        Args:
+            arg: (None) dump to dict like object
+                 (str) dump to filename
+        '''
+
+        preset = self.config
+
+        if isinstance(arg, str):
+            with open(arg, 'w') as f:
+                json.dump(preset, f)
+        elif arg is None:
+            return copy.deepcopy(preset)
 
     # === Sub interfaces ===
 
     def _forward_object(self, **kwargs):
 
         return self.plot(**kwargs)
+
+    # === Private ===
+
+    def _generate_traces(self):
+        '''
+        Generate traces
+        TODO: dirty code
+        return (trace, (row, col))
+        '''
+
+        all_traces = []
+
+        for k, ts in self._subplot_traces.items():
+            for t in ts:
+                print(t.params)
+                params = copy.deepcopy(t.params)
+                configs = copy.deepcopy(self.config['traces'].get(t.trace.type, {}))
+                trace_configs = params.pop('trace_configs', {})
+
+                if is_array(configs) and is_array(trace_configs):
+                    assert len(configs) == len(trace_configs), 'configurations must have same length'
+
+                    for idx, (c, tc) in enumerate(zip(configs, trace_configs)):
+                        c.update(tc)
+                        
+                elif is_array(configs):
+                    for idx, c in enumerate(configs):
+                        c.update(trace_configs)
+                elif is_array(trace_configs):
+                    c = []
+                    for idx, tc in enumerate(trace_configs):
+                        c.append( copy.deepcopy(configs).update(trace_configs) )
+                else:
+                    configs.update(trace_configs)
+
+                traces = t.trace(trace_configs=configs, **t.params)
+
+                if is_array(traces):
+                    for trace in traces:
+                        all_traces.append( (trace, k) )
+                else:
+                    all_traces.append( (traces, k) )
+
+        return all_traces

@@ -263,7 +263,7 @@ class BaseTrace(BasePlotObject):
         return self._loaded_source
 
     @property
-    def type(self) -> Hashable:
+    def type(self) -> str:
         '''
         Trace type
         '''
@@ -297,7 +297,7 @@ class BaseTrace(BasePlotObject):
         self.drafts.source = source
 
         # get trace type
-        self._trace_type = type
+        self._trace_type = self.get_typename(type)
         self._trace_config = Route(kwargs)
 
         # initialize instances
@@ -361,6 +361,11 @@ class BaseTrace(BasePlotObject):
         # unload self
         self._loaded = False
 
+
+    @classmethod
+    @abc.abstractmethod
+    def get_typename(cls, obj: Hashable):
+        pass
 
     # === Sub interfaces ===
 
@@ -519,7 +524,7 @@ class _TraceWrapper():
         
         # unwrap redundant TraceWrapper(s)
         self._wrapped_trace = self._unwrap(trace)
-        self._wrapped_params = ParameterPack(**kwargs)
+        self._wrapped_params = Route(**kwargs)
 
     def __call__(self, *args, **kwargs):
         return self._wrapped_trace(*args, **kwargs)

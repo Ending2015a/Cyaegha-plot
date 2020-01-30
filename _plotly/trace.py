@@ -112,6 +112,16 @@ class Trace(BaseTrace):
 
         return dict(cls._type_mapping)
 
+    @classmethod
+    def get_typename(cls, name: Hashable):
+
+        if name in cls._alias_mapping:
+            name = cls._alias_mapping[name]
+        elif name not in cls._type_mapping.keys():
+            raise ValueError('Unknown type: {}'.format(name))
+
+        return name
+
     # === Sub interfaces ===
 
     def _forward_object(self, input: pd.DataFrame =None,

@@ -87,7 +87,7 @@ class Interpolation(BaseProcess):
         Override BaseProcess._forward_process
         '''
         return self._interpolate(input, self._xaxis, self._start, self._end, self._interval,
-                                                self._default_values, self._ignore_nan)
+                                                self._default_values, self._ignore_nan, LOG=self.LOG)
 
     def _error_message(self):
         '''
@@ -188,7 +188,7 @@ class BatchAverage(BaseProcess):
         if not is_array(input):
             return input
         else:
-            return self._average(input, self._xaxis)
+            return self._average(input, self._xaxis, LOG=self.LOG)
 
     def _error_message(self):
         '''
@@ -199,7 +199,7 @@ class BatchAverage(BaseProcess):
     # === Functions ===
 
     @classmethod
-    def _average(cls, datas, xaxis):
+    def _average(cls, datas, xaxis, **kwargs):
         '''
         Average
         '''
@@ -248,7 +248,7 @@ class Smoothing(BaseProcess):
         '''
         Override BaseProces._forward_process
         '''
-        return self._smoothing(input, self._window_size, self._window_type, self._apply_columns, self._exclude_columns)
+        return self._smoothing(input, self._window_size, self._window_type, self._apply_columns, self._exclude_columns, LOG=self.LOG)
 
     def _error_message(self):
         '''
@@ -260,7 +260,7 @@ class Smoothing(BaseProcess):
     # === Functions ===
     
     @classmethod
-    def _smoothing(cls, data, window_size, window_type, apply_cols, exclude_cols):
+    def _smoothing(cls, data, window_size, window_type, apply_cols, exclude_cols, **kwargs):
         
         # type check
         assert isinstance(data, pd.DataFrame), 'data must be a DataFrame, got {}'.format(type(data))
@@ -312,7 +312,7 @@ class Combine(BaseProcess):
         '''
         Override BaseProces._forward_process
         '''
-        return self._combine(input)
+        return self._combine(input, LOG=self.LOG)
 
     def _error_message(self):
         '''
@@ -323,7 +323,7 @@ class Combine(BaseProcess):
     # === Functions ===
 
     @classmethod
-    def _combine(cls, data):
+    def _combine(cls, data, **kwargs):
         
         if isinstance(data, pd.DataFrame):
             return data
@@ -364,7 +364,8 @@ class ConfidenceInterval(BaseProcess):
         '''
         Override BaseProces._forward_process
         '''
-        return self._interval(input)
+        return self._interval(input, self._xaxis, self._yaxis, self._ci, self._hi_col, 
+                                            self._lo_col, self._mean_col, LOG=self.LOG)
 
     def _error_message(self):
         '''
@@ -374,14 +375,8 @@ class ConfidenceInterval(BaseProcess):
 
     # === Functions ===
 
-    def _interval(self, data):
-
-        xaxis = self._xaxis
-        yaxis = self._yaxis
-        ci = self._ci
-        hi_col = self._hi_col
-        lo_col = self._lo_col
-        mean_col = self._mean_col
+    @classmethod
+    def _interval(cls, data, xaxis, yaxis, ci, hi_col, lo_col, mean_col, LOG=None, **kwargs):
 
         # type check
         assert isinstance(data, pd.DataFrame), 'data must be a DataFrame, got {}'.format(type(data))
@@ -390,11 +385,11 @@ class ConfidenceInterval(BaseProcess):
 
         # print warning if data as NaN value
         if data.isnull().values.any():
-            self.LOG.warning('the data has NaN values')
+            LOG.warning('the data has NaN values')
 
-            self.LOG.set_header()
-            self.LOG.add_rows(data.isna().any(axis=1).head(n=5), fmt='{}')
-            self.LOG.flush('WARN')
+            LOG.set_header()
+            LOG.add_rows(data.isna().any(axis=1).head(n=5), fmt='{}')
+            LOG.flush('WARN')
         
         # get default x column
         if xaxis is None:
