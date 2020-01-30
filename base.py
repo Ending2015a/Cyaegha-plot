@@ -524,7 +524,7 @@ class _TraceWrapper():
         
         # unwrap redundant TraceWrapper(s)
         self._wrapped_trace = self._unwrap(trace)
-        self._wrapped_params = Route(**kwargs)
+        self._wrapped_params = Route(kwargs)
 
     def __call__(self, *args, **kwargs):
         return self._wrapped_trace(*args, **kwargs)
@@ -703,7 +703,7 @@ class BaseGraph(BasePlotObject):
         # create array
         if (row, col) not in self._subplot_traces.keys():
             self._subplot_traces[(row, col)] = []
-
+        self.LOG.info('kwargs: {}'.format(kwargs))
         self._subplot_traces[(row, col)].append( _TraceWrapper(trace, kwargs) )
 
         return self

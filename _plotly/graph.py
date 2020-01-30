@@ -229,7 +229,7 @@ class Graph(BaseGraph):
 
         for k, ts in self._subplot_traces.items():
             for t in ts:
-                print(t.params)
+                
                 params = copy.deepcopy(t.params)
                 configs = copy.deepcopy(self.config['traces'].get(t.trace.type, {}))
                 trace_configs = params.pop('trace_configs', {})
@@ -250,7 +250,7 @@ class Graph(BaseGraph):
                 else:
                     configs.update(trace_configs)
 
-                traces = t.trace(trace_configs=configs, **t.params)
+                traces = t.trace(trace_configs=configs, **params)
 
                 if is_array(traces):
                     for trace in traces:
