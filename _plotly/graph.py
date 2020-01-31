@@ -35,12 +35,71 @@ from cyaegha.common.utils import counter
 from cyaegha.common.utils import is_array
 
 from cyaegha.plot.base import BaseGraph
-
+from cyaegha.plot.base import BasePreset
 
 
 __all__ = [
     'Graph'
 ]
+
+LOG = logger.getLogger('cyaegha.graph', 'INFO')
+
+class Preset(BasePreset):
+
+    # === Properties ===
+    @property
+    def default_format(self):
+        '''
+        Return default preset format
+        '''
+        
+
+#trying to support json format
+try:
+    import json
+
+# trying to supporting yaml format
+try:
+    import yaml
+    
+    def _load_yaml(self, file):
+        '''
+        Load object from yaml
+        '''
+        try:
+            # loading
+            with open(file, 'r') as f:
+                return yaml.safe_load(f)
+
+        except yaml.YAMLError as e:
+            # failed to load yaml
+            self.LOG.error('Failed to load preset from: {}'.format(file))
+
+        return None
+
+    def _dump_yaml(self, file, data):
+        '''
+        Dump object to file
+        '''
+        try:
+            # loading
+            with open(file, 'w') as f:
+                yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+
+        except yaml.YAMLError as e:
+            # failed to dump yaml
+            self.LOG.error('Failed to dump preset to: {}'.format(file))
+
+        return None
+
+    Preset.register(format='yaml', alias=['yml', '.yaml', 'yml'], _load_yaml, _dump_yaml)
+
+except ImportError:
+    
+    LOG.warning('{} does not support yaml format.'.format(Preset.__qualname__))
+    LOG.warning('Please install PyYAML for supporting yaml.')
+
+
 
 class Graph(BaseGraph):
 
@@ -178,11 +237,12 @@ class Graph(BaseGraph):
         self.config['plot'].update(kwargs)
     
 
-    def load_preset(self, arg):
+    def load_preset(self, *arg, format=None):
         '''
         Args:
             arg: (str) filename, load from file, in json format
-                 (dict) dict like object, load from dict
+                 (dict) load from dict
+            format: (str) file format. If None, 
         '''
         if isinstance(arg, str):
             with open(arg, 'r') as f:
@@ -195,7 +255,7 @@ class Graph(BaseGraph):
         self.update_traces(preset.get('traces', {}))
         self.update_plot(preset.get('plot', {}))
 
-    def dump_preset(self, arg=None):
+    def dump_preset(self, *arg, format=None):
         '''
         Args:
             arg: (None) dump to dict like object

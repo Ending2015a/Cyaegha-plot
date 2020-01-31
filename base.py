@@ -570,6 +570,168 @@ class BaseSubplotHandler(argshandler(sig='self, row, col')):
     #     def remove_trace(self, trace)
     
 
+class BasePreset():
+
+    # === Attributes ===
+
+    # mapping format name to loader
+    _loader_map = {} 
+    # mapping format name to dumper
+    _dumper_map = {}
+    # mapping alias to format name
+    _alias_map = {}
+
+    # === Properties ===
+
+    @property
+    @abc.abstractmethod
+    def default_format(self):
+        '''
+        Return default preset format
+        '''
+        pass
+
+    @property
+    @abc.abstractmethod
+    def support_formats(self):
+        '''
+        Return preset supported format
+        '''
+        pass
+
+    # === Main interfaces ===
+
+    def __init__(self):
+
+        self.preset = Route()
+
+    @abc.abstractmethod
+    def update(self, *arg, overwrite=False, **kwargs):
+        '''
+        Update preset
+
+        Args:
+            arg[0]: (dict) preset
+            overwrite: (bool) whether to overwrite existing properties. If False, apply updates to existing properties.
+
+        Kwargs:
+            (preset)
+        '''
+        pass
+
+
+    @abc.abstractmethod
+    def load(self, *arg, overwrite=False, format=None):
+        '''
+        Load preset
+
+        Args:
+            arg[0]: (str) filename, load preset from file. 
+                    (dict) dict preset, load preset from dict.
+            overwrite: (bool) whether to overwrite existing properties. If False, apply updates to existing properties.
+            format: (str) file format. If given, the extention of the given filename will be ignored.
+        '''
+        pass
+        
+    @abc.abstractmethod
+    def dump(self, *arg, format=None):
+        '''
+        Dump preset
+
+        Args:
+            arg[0]: (str) filename, dump preset to file.
+                    (None) dump and return dict object
+            format: (str) file format. If given, the extention of the given filename will be ignored.
+
+        Return:
+            (dict or None) If arg[0] is None, return (dict), which represents the dumped preset.
+                Otherwise, return (None).
+        '''
+        pass
+
+
+    @classmethod
+    @abc.abstractmethod
+    def support(self, *arg):
+        '''
+        Return support format
+
+        Args:
+            arg[0]: (str) format name, whether support this format. if specified, return (bool)
+                    (None) return supported formats (list).
+
+        Returns:
+            (bool or list) If arg[0] is None, return (list), which represents the supported format.
+                Otherwise, return (bool), representing whether supporting the format specified in arg[0]
+        '''
+        pass
+
+    @classmethod
+    def register(cls, *, format=None, alias=None, loader=None, dumper=None):
+        '''
+        Register new format
+        '''
+
+        assert (format is not None) and (loader is not None) and (dumper is not None)
+
+        cls._register(format, alias, loader, dumper)
+            
+            
+
+    # === Sub interfaces ===
+
+    @classmethod
+    def _register(cls, format: str, alias: Any, loader: Callable, dumper: Callable):
+
+        assert isinstance(format, str), 'format must be a string object'
+        assert callable(dumper), 'dumper must be a callable object'
+        assert callable(loader), 'loader must be a callable object'
+
+        if format in cls._loader_map.keys():
+            raise RuntimeError('The format `{}` is already registered'.format(format))
+
+        cls._loader_map[format] = loader
+        cls._dumper_map[format] = dumper
+
+        if alias is not None:
+
+            if is_array(alias):
+                for a in alias:
+                    # alias is already in used
+                    if a in cls._alias_map.keys():
+                        raise RuntimeError('The alias `{}` for format `{}` is already used by format `{}`'.format(a, format, cls._alias_map[a]))
+                    
+                    cls._alias_map[a] = format
+            else:
+
+                # alias is already in used
+                if alias in cls._alias_map.keys():
+                    raise RuntimeError('The alias `{}` for format `{}` is already used by format `{}`'.format(alias, format, cls._alias_map[alias]))
+
+                cls._alias_map[alias] = format
+
+    @classmethod
+    def _get_format(cls, obj: Hashable):
+        if obj in cls._alias_map.keys(): 
+            obj = cls._alias_map[obj]
+        elif obj not in cls._loader_map.keys():
+            raise ValueError('Unknown format name: {}'.format(obj))
+
+        return obj
+
+    @classmethod
+    def _get_loader(cls, obj: Hashable):
+        name = cls._get_format(obj)
+
+        return self._loader_map[name]
+    
+    @classmethod
+    def _get_dumper(cls, obj: Hashable):
+        name = cls._get_format(obj)
+
+        return self._dumper_map[name]
+
+
 
 class BaseGraph(BasePlotObject):
 
@@ -595,6 +757,9 @@ class BaseGraph(BasePlotObject):
         Return configurations
         '''
         return self._graph_config
+
+    @property
+    def preset(self) ->
 
     # === Main interfaces ===
 
@@ -755,6 +920,23 @@ class BaseGraph(BasePlotObject):
                     del self._subplot_traces[(row, col)][idx]
             
         return self
+
+    @abc.abstractmethod
+    def load_preset(self, *args, **kwargs):
+        '''
+        Load presets
+        '''
+        pass
+
+    @abc.abstractmethod
+    def dump_preset(self, *args, **kwargs):
+        '''
+        Load presets
+        '''
+        pass
+
+    @abc.abstractmethod
+    def preset_formats(self):
 
     # === Sub interfaces ===
 
