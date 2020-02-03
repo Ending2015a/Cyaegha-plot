@@ -8,13 +8,15 @@ import json
 import logging
 
 from typing import Any
-from typing import Union
 from typing import List
 from typing import Tuple
+from typing import Union
 from typing import Callable
 from typing import NoReturn
 from typing import Optional
 from typing import Hashable
+
+from collections import Mapping
 
 # --- 3rd party ---
 import numpy as np
@@ -47,29 +49,227 @@ LOG = logger.getLogger('cyaegha.graph', 'INFO')
 class Preset(BasePreset):
 
     # === Properties ===
-    @property
-    def default_format(self):
+    
+    def default_format(self) -> str:
         '''
         Return default preset format
         '''
+        return 'json'
+    
+    @property
+    def support_formats(self) -> List[str]:
+        '''
+        Return preset supported format
+        '''
+        return self._get_format_list()
+
+    # === Main interfaces ===
+
+    def __init__(self):
+        self._preset = Route()
+
+    def __getitem__(self, keys: Hashable) -> Any:
         
+        return self._preset[keys]
 
-#trying to support json format
-try:
-    import json
+    def __setitem__(self, keys: Hashable, value: Any) -> NoReturn:
 
+        self._preset[keys] = value
+
+    def __delitem__(self, keys: Hashable) -> NoReturn:
+
+        del self._preset[keys]
+
+    def get(self, keys: Hashable, default: Any =None) -> Any:
+
+        return self._preset.get(keys, default)
+
+    def pop(self, keys: Hashable, default: Any =None) -> Any:
+
+        return self._preset.pop(keys, default)
+
+    def update(self, *args, overwrite=False, **kwargs) -> __qualname__:
+        '''
+        Update preset
+
+        Args:
+            args[0]: (dict) preset
+            overwrite: (bool) whether to overwrite existing properties. 
+                If False, apply updates to existing properties
+
+        Kwargs:
+            (preset)
+
+        Returns:
+            (self)
+        '''
+
+        if len(args) > 0:
+            assert isinstance(args[0], Mapping), 'The first argument must be a dict like object'
+
+        if overwrite:
+            self._preset.update(*args, **kwargs)
+        
+        else:
+            # TODO: if list in the Route, this feature will break.
+
+            args = Route(*args).plain()
+            kwargs = Route(**kwargs).plain()
+
+            for k, v in args.items():
+                self._preset[k] = v
+
+            for k , v in kwargs.items():
+                self._preset[k] = v
+
+        return self
+
+    def load(self, arg, *, overwrite=True, format=None, **kwargs) -> __qualname__:
+        '''
+        Load preset
+
+        Args:
+            arg: (str) filename, load preset from file. 
+                 (dict) dict preset, load preset from dict.
+            overwrite: (bool) whether to overwrite existing properties. If False, apply updates to existing properties.
+            format: (str) file format. If given, the extention of the given filename will be ignored.
+        
+        Kwargs:
+            (kwargs for loader)
+        
+        Returns:
+            (self)
+        '''
+
+        if isinstance(arg, str):
+            # get format
+            if format is None:
+                _, ext = os.path.splitext(arg)
+                format = self._get_format(ext)
+            
+            loader = self._get_loader(format)
+
+            # load preset
+            loaded_preset = loader(arg, **kwargs)
+
+            # update current preset
+            self.update(loaded_preset, overwrite=overwrite)
+
+        elif isinstance(arg, Mapping):
+            self.update(arg, overwrite=overwrite)
+
+        else:
+            raise TypeError('The first argument must be a `str` or `dict`, got {}'.format(type(arg)))
+
+        return self
+
+    def dump(self, *args, format=None, **kwargs):
+        '''
+        Dump preset
+
+        Args:
+            args[0]: (str) filename, dump preset to file.
+                     (None) dump and return dict object
+            format: (str or None) file format. If given, the extention of the given filename will be ignored.
+
+        Kwargs:
+            (kwargs for dumper)
+
+        Return:
+            (dict or None) If arg[0] is None, return (dict), which represents the dumped preset.
+                Otherwise, return (None).
+        '''
+
+        if len(args) > 0:
+            arg = args[0]
+        else:
+            arg = None
+
+        # dump to file
+        if isinstance(arg, str):
+            # get format
+            if format is None:
+                _, ext = os.path.splitext(arg)
+                format = self._get_format(ext)
+            
+            dumper = self._get_dumper(format)
+
+            # dump preset
+            dumper(self._preset, arg, **kwargs)
+
+        elif arg is None:
+            # dump to base dict
+            return copy.deepcopy(self._preset.to_base())
+
+        else:
+            raise TypeError('The first argument must be a `str` or `None`, got {}'.format(type(arg)))
+
+
+    @classmethod
+    def support(cls, *args):
+        '''
+        Return support format
+
+        Args:
+            arg[0]: (str) format name, whether support this format. if specified, return (bool)
+                    (None) return supported formats (list).
+
+        Returns:
+            (bool or list) If arg[0] is None, return (list), which represents the supported format.
+                Otherwise, return (bool), representing whether supporting the format specified in arg[0]
+        '''
+
+        if len(args) > 0:
+            arg = args[0]
+        else:
+            arg = None
+
+        if arg is None:
+            return cls._get_format_list()
+        else:
+            return cls._has_format(arg)
+
+
+# === json support ===
+# suppot json format
+def _load_json(self, file, **kwargs):
+    '''
+    Load object from json
+    '''
+    try:
+        with open(file, 'r') as f:
+            return json.load(file, **kwargs)
+
+    except json.JSONDecodeError as e:
+        # failed to load json
+        self.LOG.error('Failed to load preset from: {}'.format(file))
+
+def _dump_json(self, data, file, **kwargs):
+    '''
+    Dump object to json
+    '''
+    try:
+        with open(file, 'w') as f:
+            json.dump(data, f, **kwargs)
+    
+    except TypeError as e:
+        self.LOG.error('Failed to dump preset to: {}'.format(file))
+
+Preset.register(format='json', alias=['JSON', '.json'], _load_json, _dump_json)
+
+
+# === yaml support ===
 # trying to supporting yaml format
 try:
     import yaml
     
-    def _load_yaml(self, file):
+    def _load_yaml(self, file, **kwargs):
         '''
         Load object from yaml
         '''
         try:
-            # loading
             with open(file, 'r') as f:
-                return yaml.safe_load(f)
+                return yaml.safe_load(f, **kwargs)
 
         except yaml.YAMLError as e:
             # failed to load yaml
@@ -77,22 +277,20 @@ try:
 
         return None
 
-    def _dump_yaml(self, file, data):
+    def _dump_yaml(self, data, file, **kwargs):
         '''
         Dump object to file
         '''
         try:
-            # loading
             with open(file, 'w') as f:
-                yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+                yaml.dump(data, f, **kwargs)
 
         except yaml.YAMLError as e:
             # failed to dump yaml
             self.LOG.error('Failed to dump preset to: {}'.format(file))
 
-        return None
 
-    Preset.register(format='yaml', alias=['yml', '.yaml', 'yml'], _load_yaml, _dump_yaml)
+    Preset.register(format='yaml', alias=['YAML', 'YML', 'yml', '.yaml', 'yml'], _load_yaml, _dump_yaml)
 
 except ImportError:
     
@@ -106,11 +304,11 @@ class Graph(BaseGraph):
     # === Properties ===
     @property
     def rows(self) -> int:
-        return self.config['subplot/rows']
+        return self.preset['subplot/rows']
 
     @property
     def cols(self) -> int:
-        return self.config['subplot/cols']
+        return self.preset['subplot/cols']
 
     # === Main interfaces ===
 
@@ -125,14 +323,16 @@ class Graph(BaseGraph):
 
         super(Graph, self).__init__(name=name, rows=rows, cols=cols, **kwargs)
 
-        # save settings
-        self.config['subplot'] = {}
-        self.config['layout'] = {}
-        self.config['traces'] = {}
-        self.config['plot'] = {}
+        # update preset
+        self.preset.update(overwrite=True, subplot=dict(rows=rows, cols=cols, specs=specs),
+                                           layout=dict(),
+                                           traces=dict(),
+                                           plot=dict())
 
-        self.update_subplot(rows=rows, cols=cols, specs=specs)
-        self.update_subplot(kwargs)
+        self.preset.update(subplot=kwargs)
+
+        # generate indices
+        self._generate_subplot_indices()
         
 
 
@@ -168,113 +368,92 @@ class Graph(BaseGraph):
         self.LOG.info('Done in {} secs'.format(time.time() - start))
         return fig
 
-    def update_subplot(self, arg: dict=None, **kwargs):
+
+    def load_preset(self, arg, *, overwrite=True, format=None, **kwargs):
         '''
-        Update subplot configurations
-        '''
-
-        reindex = False
-
-        if arg is not None:
-            assert isinstance(arg, dict), 'arg must be a dict type'
-
-            self.config['subplot'].update(arg)
-
-            reindex = (('rows' in arg.keys()) or ('cols' in arg.keys()))
-
-
-        self.config['subplot'].update(kwargs)
-
-
-        # re-indexing
-        if ((reindex) or ('rows' in kwargs) or ('cols' in kwargs)):
-            specs = self.config.get('subplot/specs', None)
-            
-            count = counter()
-
-            # indexing subplot
-            for r in range(self.rows):
-                for c in range(self.cols):
-                    if specs is not None:
-                        if specs[r][c] is not None:
-                            self._subplot_indices[next(count)] = (r, c)
-                    else:
-                        self._subplot_indices[next(count)] = (r, c)
-
-
-
-    def update_layout(self, arg: dict=None, **kwargs):
-        '''
-        Update layout configurations
+        Load preset
 
         Args:
-            arg: dict-like object
-        '''
-
-        if arg is not None:
-            self.config['layout'].update(arg)
+            arg: (str) filename, load preset from file. 
+                 (dict) dict preset, load preset from dict.
+            overwrite: (bool) whether to overwrite existing properties. If False, apply updates to existing properties.
+            format: (str) file format. If given, the extention of the given filename will be ignored.
         
-        self.config['layout'].update(kwargs)
+        Kwargs:
+            (kwargs for loader)
         
-    def update_traces(self, arg: dict=None, **kwargs):
+        Returns:
+            (self)
         '''
-        Update trace configurations
+        
+        self.preset.load(arg, overwrite=overwrite, format=format, **kwargs)
+
+        self._generate_subplot_indices()
+
+        return self
+
+    def dump_preset(self, *args, format=None, **kwargs):
         '''
+        Dump preset
 
-        if arg is not None:
-            self.config['traces'].update(arg)
-
-        self.config['traces'].update(kwargs)
-    
-    def update_plot(self, arg: dict=None, **kwargs):
-        '''
-        Update plot configurations
-        '''
-
-        if arg is not None:
-            self.config['plot'].update(arg)
-
-        self.config['plot'].update(kwargs)
-    
-
-    def load_preset(self, *arg, format=None):
-        '''
         Args:
-            arg: (str) filename, load from file, in json format
-                 (dict) load from dict
-            format: (str) file format. If None, 
-        '''
-        if isinstance(arg, str):
-            with open(arg, 'r') as f:
-                preset = json.load(f)
-        elif isinstance(arg, dict):
-            preset = dict
-        
-        self.update_subplot(preset.get('subplot', {}))
-        self.update_layout(preset.get('layout', {}))
-        self.update_traces(preset.get('traces', {}))
-        self.update_plot(preset.get('plot', {}))
+            args[0]: (str) filename, dump preset to file.
+                     (None) dump and return dict object
+            format: (str or None) file format. If given, the extention of the given filename will be ignored.
 
-    def dump_preset(self, *arg, format=None):
+        Kwargs:
+            (kwargs for dumper)
+
+        Return:
+            (dict or None) If arg[0] is None, return (dict), which represents the dumped preset.
+                Otherwise, return (None).
         '''
+
+        return self.preset.dump(*args, format=format, **kwargs)
+
+    @classmethod
+    def from_preset(cls, arg, *, format=None, **kwargs):
+        '''
+        Create graph from preset
+
         Args:
-            arg: (None) dump to dict like object
-                 (str) dump to filename
+            arg: (str) filename, load preset from file. 
+                 (dict) dict preset, load preset from dict.
+            format: (str) file format. If given, the extention of the given filename will be ignored.
+        
+        Kwargs:
+            (kwargs for loader)
+        
+        Returns:
+            (self)
         '''
 
-        preset = self.config
+        #TODO: name
+        self = cls(name='<anony>')
 
-        if isinstance(arg, str):
-            with open(arg, 'w') as f:
-                json.dump(preset, f)
-        elif arg is None:
-            return copy.deepcopy(preset)
+        return self.load_preset(arg, format=format, **kwargs)
 
     # === Sub interfaces ===
 
     def _forward_object(self, **kwargs):
 
         return self.plot(**kwargs)
+
+
+    def _generate_subplot_indices(self):
+
+        specs = self.preset.get('subplot/specs', None)
+            
+        count = counter()
+
+        # indexing subplot
+        for r in range(self.rows):
+            for c in range(self.cols):
+                if specs is not None:
+                    if specs[r][c] is not None:
+                        self._subplot_indices[next(count)] = (r, c)
+                else:
+                    self._subplot_indices[next(count)] = (r, c)
 
     # === Private ===
 

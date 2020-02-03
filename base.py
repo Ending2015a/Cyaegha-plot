@@ -8,6 +8,7 @@ import inspect
 import logging
 
 from typing import Any
+from typing import Type
 from typing import Union
 from typing import Tuple
 from typing import Generic
@@ -17,6 +18,8 @@ from typing import NoReturn
 from typing import Optional
 from typing import Generator
 from typing import cast
+
+from collections import OrderedDict
 
 # --- 3rd party ---
 import numpy as np
@@ -568,15 +571,16 @@ class BaseSubplotHandler(argshandler(sig='self, row, col')):
     #     def add_trace(self, trace)
     #     def get_traces(self)
     #     def remove_trace(self, trace)
-    
+
+
 
 class BasePreset():
 
     # === Attributes ===
 
-    # mapping format name to loader
+    # mapping format name to preset loader
     _loader_map = {} 
-    # mapping format name to dumper
+    # mapping format name to preset dumper
     _dumper_map = {}
     # mapping alias to format name
     _alias_map = {}
@@ -593,25 +597,21 @@ class BasePreset():
 
     @property
     @abc.abstractmethod
-    def support_formats(self):
+    def support_formats(self) -> list:
         '''
-        Return preset supported format
+        Return preset supported formats
         '''
         pass
 
     # === Main interfaces ===
 
-    def __init__(self):
-
-        self.preset = Route()
-
     @abc.abstractmethod
-    def update(self, *arg, overwrite=False, **kwargs):
+    def update(self, *args, overwrite=False, **kwargs):
         '''
         Update preset
 
         Args:
-            arg[0]: (dict) preset
+            args[0]: (dict) preset
             overwrite: (bool) whether to overwrite existing properties. If False, apply updates to existing properties.
 
         Kwargs:
@@ -621,26 +621,26 @@ class BasePreset():
 
 
     @abc.abstractmethod
-    def load(self, *arg, overwrite=False, format=None):
+    def load(self, arg, *, overwrite=False, format=None, **kwargs):
         '''
         Load preset
 
         Args:
-            arg[0]: (str) filename, load preset from file. 
-                    (dict) dict preset, load preset from dict.
+            arg: (str) filename, load preset from file. 
+                 (dict) dict preset, load preset from dict.
             overwrite: (bool) whether to overwrite existing properties. If False, apply updates to existing properties.
             format: (str) file format. If given, the extention of the given filename will be ignored.
         '''
         pass
         
     @abc.abstractmethod
-    def dump(self, *arg, format=None):
+    def dump(self, *args, format=None, **kwargs):
         '''
         Dump preset
 
         Args:
-            arg[0]: (str) filename, dump preset to file.
-                    (None) dump and return dict object
+            args[0]: (str) filename, dump preset to file.
+                     (None) dump and return dict object
             format: (str) file format. If given, the extention of the given filename will be ignored.
 
         Return:
@@ -652,7 +652,7 @@ class BasePreset():
 
     @classmethod
     @abc.abstractmethod
-    def support(self, *arg):
+    def support(cls, *arg):
         '''
         Return support format
 
@@ -711,7 +711,17 @@ class BasePreset():
                 cls._alias_map[alias] = format
 
     @classmethod
+    def _get_format_list(cls):
+        '''
+        Return the list of valid format names
+        '''
+        return list(cls._loader_map.keys())
+
+    @classmethod
     def _get_format(cls, obj: Hashable):
+        '''
+        Return the format name by giving the format name or its alias
+        '''
         if obj in cls._alias_map.keys(): 
             obj = cls._alias_map[obj]
         elif obj not in cls._loader_map.keys():
@@ -720,13 +730,26 @@ class BasePreset():
         return obj
 
     @classmethod
+    def _has_format(cls, obj: Hashable):
+        '''
+        Return if the given format is registered
+        '''
+        return (obj in cls._alias_map.keys()) or (obj in cls._loader_map.keys())
+
+    @classmethod
     def _get_loader(cls, obj: Hashable):
+        '''
+        Return the preset loader by specifing the format name or its alias
+        '''
         name = cls._get_format(obj)
 
         return self._loader_map[name]
     
     @classmethod
     def _get_dumper(cls, obj: Hashable):
+        '''
+        Return the preset dumper by specifing the format name or its alias
+        '''
         name = cls._get_format(obj)
 
         return self._dumper_map[name]
@@ -734,6 +757,31 @@ class BasePreset():
 
 
 class BaseGraph(BasePlotObject):
+    '''
+    BaseGraph
+
+    The base class of cyaegha.plot Graph
+
+    Attributes:
+        _Preset_class: The class of the preset of the graph. If you are inheriting
+            the BaseGraph, do not forget to change this attribute to your custom preset.
+
+    Properties:
+        rows: (int) rows of the subplots
+        cols: (int) cols of the subplots
+        loaded: (bool) whether all of the traces are loaded
+        preset: (BasePreset) graph preset
+    
+    Main interfaces:
+        __init__:
+        __call__:
+        __getitem__:
+        load:
+        unload:
+    '''
+
+    # === Attributes ===
+    _Preset_class: Type[BasePreset] = BasePreset
 
     # === Properties ===
     @property
@@ -752,14 +800,11 @@ class BaseGraph(BasePlotObject):
         return all([t.loaded for t in self._flatten_traces()])
 
     @property
-    def config(self) -> Route:
+    def preset(self) -> Type[BasePreset]:
         '''
-        Return configurations
+        Return prestes
         '''
-        return self._graph_config
-
-    @property
-    def preset(self) ->
+        return self._graph_preset
 
     # === Main interfaces ===
 
@@ -773,19 +818,16 @@ class BaseGraph(BasePlotObject):
 
         super(BaseGraph, self).__init__(name=name, **kwargs)
 
+        # initialize
         self._subplot = (rows, cols)
-        self._graph_config = Route()
+        self._graph_preset = _Preset_class()
 
-        self._subplot_traces = {}
+        self._subplot_traces = OrderedDict()
         self._subplot_indices = {}
 
-        # create a counter starting from 0, steping 1
-        count = counter()
+        # generate subplot indices
+        self._generate_subplot_indices()
 
-        # indexing subplot
-        for r in range(rows):
-            for c in range(cols):
-                self._subplot_indices[next(count)] = (r, c)
 
     def __call__(self, input: Any =None, force: bool =False, **kwargs) -> Any:
         '''
@@ -802,8 +844,10 @@ class BaseGraph(BasePlotObject):
     
         return self._cached_outputs
 
-    def __getitem__(self, key: Union[int, Tuple[int, int]]) -> BaseSubplotHandler:
+    def __getitem__(self, key: Union[int, Tuple[int, int]]) -> Type[BaseSubplotHandler]:
         '''
+        Get SubplotHandler
+
         Args:
             key: (int or Tuple(int, int)) index or (row, col)
         '''
@@ -831,7 +875,7 @@ class BaseGraph(BasePlotObject):
             t.unload()
 
     @abc.abstractmethod
-    def plot(self):
+    def plot(self, *args, **kwargs):
         '''
         Plot graph
         '''
@@ -849,28 +893,40 @@ class BaseGraph(BasePlotObject):
         return BaseSubplotHandler(self, row, col)
 
     @BaseSubplotHandler.serve()
-    def add_trace(self, trace, row=1, col=1, **kwargs):
+    def add_trace(self, trace, row=1, col=1, ignore=True, **kwargs):
         '''
-        Add new trace to subplot
+        Add a new trace to the subplot
 
         Args:
             trace: (BaseTrace) new trace to add
             row: (int) subplot row
             col: (int) subplot col
+            ignore: (bool) whether to ignore trace exists warning
         
         Kwargs:
-            (parameters for generating traces)
+            (parameters for generating traces) these parameters are used at calling trace.__call__()
+
+        Returns:
+            (self)
         '''
 
         # assert (row, col)
-        assert row <= self.rows and col <= self.cols
+        assert (row <= self.rows) and (col <= self.cols)
 
-        # create array
+        # create mapping (trace, params)
         if (row, col) not in self._subplot_traces.keys():
-            self._subplot_traces[(row, col)] = []
-        self._subplot_traces[(row, col)].append( _TraceWrapper(trace, kwargs) )
+            self._subplot_traces[(row, col)] = OrderedDict()
+
+        # print exists warning
+        if not ignore:
+            if trace in self._subplot_traces[(row, col)]:
+                self.LOG.warning('The trace {} for subplot ({}, {}) already exists'.format(trace.name, row, col))
+        
+        # add to the subplot a mapping of (trace, params)
+        self._subplot_traces[(row, col)][trace] = kwargs
 
         return self
+
 
     @BaseSubplotHandler.serve()
     def get_traces(self, row=1, col=1):
@@ -880,63 +936,84 @@ class BaseGraph(BasePlotObject):
         Args:
             row: (int) subplot row
             col: (int) subplot col
+
+        Returns:
+            (list of traces)
         ''' 
 
         # assert (row, col)
-        assert row <= self._subplot[0] and col <= self._subplot[1]
+        assert row <= self.rows and col <= self.cols
 
-        # create array
+        # create mapping (trace, params)
         if (row, col) not in self._subplot_traces.keys():
-            self._subplot_traces[(row, col)] = []
+            self._subplot_traces[(row, col)] = OrderedDict()
 
+        # return traces
+        return [t for t, p in self._subplot_traces[(row, col)].items()]
 
-
-        return [t.trace for t in self._subplot_traces[(row, col)]]
 
     @BaseSubplotHandler.serve()
-    def remove_trace(self, trace, row=1, col=1):
+    def remove_trace(self, trace, row=1, col=1, ignore=True):
         '''
-        Remove existing trace
+        Remove existing trace from the subplot
 
         Args:
             trace: (BaseTrace or int) the trace object or index in the order of appended to subplot array
             row: (int) subplot row
             col: (int) subplot col
+            ignore: (bool) whether to ignore trace not exists warning
+
+        Returns:
+            (self)
         '''
 
-        assert row <= self.rows and col <= self.cols
+        # assert (row, col)
+        assert (row <= self.rows) and (col <= self.cols)
 
+        # create mapping (trace, params)
         if (row, col) not in self._subplot_traces.keys():
-            self._subplot_traces[(row, col)] = []
+            self._subplot_traces[(row, col)] = OrderedDict()
 
+        # specifing the trace to remove by the trace index
         if isinstance(trace, int):
+            
+            # check if the i-th trace exists in the mapping
             if trace < len(self._subplot_traces[(row, col)]):
+                # get trace by index
+                trace = list(self._subplot_traces[(row, col)].keys())[trace]
+                # delete trace
                 del self._subplot_traces[(row, col)][trace]
 
+        # specifing the trace to remove by the trace instance
         elif isinstance(trace, BaseTrace):
-            # remove trace if it contains in the array
-            for idx, t in reversed(list(enumerate(self._subplot_traces[(row, col)]))):
-                if t.trace is trace:
-                    del self._subplot_traces[(row, col)][idx]
+
+            # remove the trace from the subplot if it exists in the mapping
+            if trace in self._subplot_traces[(row, col)]:
+                del self._subplot_traces[(row, col)][trace]
             
         return self
 
     @abc.abstractmethod
     def load_preset(self, *args, **kwargs):
         '''
-        Load presets
+        Load preset 
         '''
         pass
 
     @abc.abstractmethod
     def dump_preset(self, *args, **kwargs):
         '''
-        Load presets
+        Dump preset
         '''
         pass
 
+    @classmethod
     @abc.abstractmethod
-    def preset_formats(self):
+    def from_preset(self, *args, **kwargs):
+        '''
+        Create graph from preset
+        '''
+        pass
 
     # === Sub interfaces ===
 
@@ -970,33 +1047,59 @@ class BaseGraph(BasePlotObject):
         for trace in self._flatten_traces():
             trace.update(*args, **kwargs)
 
-    def _flatten_traces(self):
+    def _flatten_traces(self) -> list:
         '''
-        Convert all traces into a single list
+        Flatten traces list
+
+        Returns:
+            (list of traces)
+
+        NOTE: This function returns a list of traces. If you need the trace with its params, 
+            please use self._flatten_traces_with_params(), instead.
+        '''
+
+        traces = []
+
+        for ts in self._subplot_traces.values():
+            traces.extend([t for t in ts.keys()])
+
+        return traces
+
+    def _flatten_wrapped_traces(self) -> list:
+        '''
+        Flatten traces list with its params
+
+        Returns:
+            (list of tuples (trace, params))
+
+        NOTE: This function returns a list of traces with its params. Each list element is a 
+            tuple of (trace, params). If you only need the traces, please use self._flatten_traces(), instead.
         '''
 
         traces = []
 
         for k, ts in self._subplot_traces.items():
-            traces.extend([t.trace for t in ts])
+            traces.extend( list(ts.items()) )
 
         return traces
 
-    def _flatten_traces_tuple(self):
+    def _generate_subplot_indices(self):
         '''
-        Convert all _TraceWrapper tuple into a single list
+        Generate index for each subplot so as to access the subplot by its index
         '''
+        # create a counter starting from 0, steping 1
+        count = counter()
 
-        traces = []
+        # indexing subplot
+        for r in range(self.rows):
+            for c in range(self.cols):
+                self._subplot_indices[next(count)] = (r, c)
 
-        for k, ts in self._subplot_traces.items():
-            traces.extend(ts)
-
-        return traces
 
     def _generate_traces(self):
         '''
         Generate traces
+        TODO
 
         return (trace, (row, col))
         '''
